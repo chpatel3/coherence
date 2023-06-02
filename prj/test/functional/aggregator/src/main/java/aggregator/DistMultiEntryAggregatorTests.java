@@ -55,8 +55,8 @@ public class DistMultiEntryAggregatorTests
     @AfterClass
     public static void shutdown()
         {
-        stopCacheServer("DistMultiEntryAggregatorTests-1");
-        stopCacheServer("DistMultiEntryAggregatorTests-2");
+        stopCacheServer("DistMultiEntryAggregatorTests-1", true);
+        stopCacheServer("DistMultiEntryAggregatorTests-2", true);
         }
 
 
