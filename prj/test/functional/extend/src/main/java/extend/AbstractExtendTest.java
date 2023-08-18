@@ -98,7 +98,7 @@ public abstract class AbstractExtendTest
 
         cache.destroy();
 
-        return getFactory().ensureCache(sCacheName, loader);
+        return cache;
         }
 
     /**

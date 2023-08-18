@@ -238,7 +238,7 @@ public abstract class AbstractTestInfrastructure
         props.setProperty("test.multicast.address",   generateUniqueAddress(true));
 
         // use INADDR_ANY available ports for multicast
-        props.setProperty("test.multicast.port",
+        props.setProperty("test.multicast.port", //"65535");
             String.valueOf(LocalPlatform.get().getAvailablePorts().next()));
 
         props.setProperty("coherence.nameservice.address",

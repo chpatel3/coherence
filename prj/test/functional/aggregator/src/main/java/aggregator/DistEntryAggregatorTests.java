@@ -9,20 +9,26 @@ package aggregator;
 
 
 import com.oracle.bedrock.runtime.coherence.CoherenceClusterMember;
+
 import com.oracle.coherence.testing.AbstractFunctionalTest;
+
 import com.tangosol.net.NamedCache;
+
 import com.tangosol.util.Filter;
 import com.tangosol.util.InvocableMap;
-
 import com.tangosol.util.NullImplementation;
 import com.tangosol.util.aggregator.DoubleSum;
 import com.tangosol.util.extractor.IdentityExtractor;
 import com.tangosol.util.extractor.ReflectionExtractor;
 import com.tangosol.util.filter.AlwaysFilter;
 import com.tangosol.util.filter.EqualsFilter;
+
 import data.Trade;
+
 import java.util.Collections;
 import java.util.Properties;
+
+import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -203,6 +209,16 @@ public class DistEntryAggregatorTests
         assertTrue("Result=" + oResult, equals(oResult, NENTRIES * PRICE));
         }
 
+    /**
+     * Shutdown the test class.
+     */
+    @AfterClass
+    public static void shutdown()
+        {
+        _shutdown();
+        }
+
     private static int    NENTRIES = 200;
     private static double PRICE    = 5.0;
+
     }

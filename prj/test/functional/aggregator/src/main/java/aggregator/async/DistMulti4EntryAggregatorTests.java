@@ -57,10 +57,10 @@ public class DistMulti4EntryAggregatorTests
     @AfterClass
     public static void shutdown()
         {
-        stopCacheServer("DistMulti4EntryAggregatorTests-1");
-        stopCacheServer("DistMulti4EntryAggregatorTests-2");
-        stopCacheServer("DistMulti4EntryAggregatorTests-3");
-        stopCacheServer("DistMulti4EntryAggregatorTests-4");
+        stopCacheServer("DistMulti4EntryAggregatorTests-1", true);
+        stopCacheServer("DistMulti4EntryAggregatorTests-2", true);
+        stopCacheServer("DistMulti4EntryAggregatorTests-3", true);
+        stopCacheServer("DistMulti4EntryAggregatorTests-4", true);
         }
 
 

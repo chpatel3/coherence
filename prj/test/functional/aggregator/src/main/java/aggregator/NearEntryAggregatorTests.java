@@ -10,6 +10,7 @@ package aggregator;
 
 import com.tangosol.util.InvocableMap;
 
+import org.junit.AfterClass;
 import org.junit.BeforeClass;
 
 
@@ -48,5 +49,14 @@ public class NearEntryAggregatorTests
         System.setProperty("coherence.distributed.localstorage", "true");
 
         AbstractEntryAggregatorTests._startup();
+        }
+
+    /**
+     * Shutdown the test class.
+     */
+    @AfterClass
+    public static void shutdown()
+        {
+        _shutdown();
         }
     }

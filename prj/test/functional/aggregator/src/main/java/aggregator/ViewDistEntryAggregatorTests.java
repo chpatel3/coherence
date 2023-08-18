@@ -6,6 +6,7 @@
  */
 package aggregator;
 
+import org.junit.AfterClass;
 import org.junit.BeforeClass;
 
 /**
@@ -41,6 +42,15 @@ public class ViewDistEntryAggregatorTests
         System.setProperty("coherence.distributed.localstorage", "true");
 
         AbstractEntryAggregatorTests._startup();
+        }
+
+    /**
+     * Shutdown the test class.
+     */
+    @AfterClass
+    public static void shutdown()
+        {
+        _shutdown();
         }
 
     // ----- constants ------------------------------------------------------

@@ -54,8 +54,8 @@ public class NearMultiEntryAggregatorTests
     @AfterClass
     public static void shutdown()
         {
-        stopCacheServer("NearMultiEntryAggregatorTests-1");
-        stopCacheServer("NearMultiEntryAggregatorTests-2");
+        stopCacheServer("NearMultiEntryAggregatorTests-1", true);
+        stopCacheServer("NearMultiEntryAggregatorTests-2", true);
         }
 
 

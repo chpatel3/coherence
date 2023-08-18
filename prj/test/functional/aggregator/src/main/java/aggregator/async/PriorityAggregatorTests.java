@@ -27,6 +27,8 @@ import org.junit.Test;
 
 import static org.junit.Assert.fail;
 
+import org.junit.AfterClass;
+
 /**
  * A collection of functional tests for the various async
  * {@link PriorityAggregator} implementations that use the
@@ -60,6 +62,15 @@ public class PriorityAggregatorTests
         System.setProperty("coherence.distributed.localstorage", "true");
 
         AbstractEntryAggregatorTests._startup();
+        }
+
+    /**
+     * Shutdown the test class.
+     */
+    @AfterClass
+    public static void shutdown()
+        {
+        _shutdown();
         }
 
     // ----- AbstractEntryAggregatorTests methods ---------------------------
