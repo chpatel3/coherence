@@ -33,14 +33,14 @@ jobs:
       fail-fast: false
     steps:
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Set up JDK
       uses: oracle-actions/setup-java@v1
       with:
-        website: jdk.java.net
+        website: oracle.com
         release: 21
-        
+
     - name: Print Maven & Java version
       run: mvn -version
 
