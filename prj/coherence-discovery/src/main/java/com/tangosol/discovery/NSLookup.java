@@ -38,7 +38,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.StringTokenizer;
-
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.management.remote.JMXServiceURL;
@@ -983,69 +983,83 @@ public class NSLookup
             return;
             }
 
-        IOException   ex = null;
-        Set<InetAddress> setAddr = new HashSet<>();
+        IOException   ex                      = null;
+        AtomicBoolean bIsClusterSearchSuccess = new AtomicBoolean(false);
 
-        if (sHost.equals("localhost"))
+        try
             {
-            for (Enumeration<NetworkInterface> iterNics = NetworkInterface.getNetworkInterfaces(); iterNics.hasMoreElements(); )
+            Set<InetAddress> setAddr = getAddresses(sHost);
+
+            for (InetAddress address : setAddr)
                 {
-                for (Enumeration<InetAddress> iterAddr = iterNics.nextElement().getInetAddresses(); iterAddr.hasMoreElements(); )
+                try
                     {
-                    setAddr.add(iterAddr.nextElement());
+                    InetSocketAddress socketAddr = new InetSocketAddress(address, nPort);
+                    if (address.isMulticastAddress())
+                        {
+                        final String sClusterSearch = sCluster;
+                        datagramLookup(sClusterSearch, NS_STRING_PREFIX + sName, socketAddr,
+                                       sLocal == null
+                                       ? null
+                                       : InetAddress.getByName(sLocal), cTimeoutMillis, nTTL, null, 
+                                         new BiConsumer<String, String>()
+                                             {
+                                             public void accept(String sClusterFound, String sResult) 
+                                                 {
+                                                 System.out.println(sClusterSearch == null
+                                                         ? ("Cluster " + sClusterFound + ":\t" + sResult)
+                                                         : sResult);
+                                                 bIsClusterSearchSuccess.set(true);
+                                                 }
+                                             }
+                                      );
+                        }
+                    else
+                        {
+                        doConnection(socketAddr, sCluster, nPort, cTimeoutMillis, sName, bIsClusterSearchSuccess);
+                        }
+
+                    if (bIsClusterSearchSuccess.get())
+                        {
+                        ex = null;
+                        break;
+                        }
+                    }
+                catch (IOException ioe)
+                    {
+                    ex = ioe;
                     }
                 }
             }
-        else
+        catch (IOException ioe)
             {
-            Collections.addAll(setAddr, InetAddress.getAllByName(sHost));
+            ex = ioe;
             }
 
-        for (InetAddress address : setAddr)
+        if (!bIsClusterSearchSuccess.get())
             {
             try
                 {
-                InetSocketAddress socketAddr = new InetSocketAddress(address, nPort);
-                if (address.isMulticastAddress())
-                    {
-                    final String sClusterSearch = sCluster;
-                    datagramLookup(sClusterSearch, NS_STRING_PREFIX + sName, socketAddr,
-                            sLocal == null ? null : InetAddress.getByName(sLocal), cTimeoutMillis, nTTL, null, 
-                                    new BiConsumer<String, String>()
-                                        {
-                                        public void accept(String sClusterFound, String sResult) 
-                                            {
-                                            System.out.println(sClusterSearch == null ? ("Cluster " + sClusterFound + ":\t" + sResult) : sResult);
-                                            } 
-                                        }
-                                        );
-                    }
-                else
-                    {
-                    try (Connection conn = Connection.open(sCluster, socketAddr, cTimeoutMillis))
-                        {
-                        if (sCluster == null)
-                            {
-                            StringTokenizer sTok = new StringTokenizer(
-                                    conn.lookup("Cluster/name") + "," +
-                                    conn.lookup(NS_STRING_PREFIX + "Cluster/foreign"), "[,]");
+                Set<InetAddress> setAddr = getAddresses("localhost");
 
-                            while (sTok.hasMoreElements())
-                                {
-                                sCluster = sTok.nextToken().trim();
-                                try (Connection conn2 = Connection.open(sCluster, socketAddr, cTimeoutMillis))
-                                    {
-                                    System.out.println("Cluster " + sCluster + ":\t" + conn2.lookup(NS_STRING_PREFIX + sName));
-                                    }
-                                }
-                            }
-                        else
+                for (InetAddress address : setAddr)
+                    {
+                    try
+                        {
+                        InetSocketAddress socketAddr = new InetSocketAddress(address, nPort);
+
+                        doConnection(socketAddr, sCluster, nPort, cTimeoutMillis, sName, bIsClusterSearchSuccess);
+
+                        if (bIsClusterSearchSuccess.get())
                             {
-                            System.out.println(conn.lookup(NS_STRING_PREFIX + sName));
+                            ex = null;
+                            break;
                             }
                         }
-                    ex = null;
-                    break;
+                    catch (IOException ioe)
+                        {
+                        ex = ioe;
+                        }
                     }
                 }
             catch (IOException ioe)
@@ -1054,12 +1068,71 @@ public class NSLookup
                 }
             }
 
-        if (ex != null)
+        if (!bIsClusterSearchSuccess.get())
             {
             String sMsg = ex.getMessage();
-            System.err.println("Error: " + (sMsg == null ? ex.getClass().getSimpleName() : sMsg) + "; while querying " + sHost + ":" + nPort + " for " + sName);
+            System.err.println("Error: " + (sMsg == null ? ex.getClass().getSimpleName() : sMsg) + "; while querying cluster for: " + sName);
             System.exit(1);
             }
+        }
+
+    private static void doConnection(InetSocketAddress socketAddr, String sCluster, int nPort, int cTimeoutMillis, 
+            String sName, AtomicBoolean isClusterSearchSuccessful) throws IOException
+        {
+        try (Connection conn = Connection.open(sCluster, socketAddr, cTimeoutMillis))
+            {
+            if (sCluster == null)
+                {
+                StringTokenizer sTok = new StringTokenizer(
+                        conn.lookup("Cluster/name") + "," +
+                        conn.lookup(NS_STRING_PREFIX + "Cluster/foreign"), "[,]");
+
+                while (sTok.hasMoreElements())
+                    {
+                    sCluster = sTok.nextToken().trim();
+
+                    try (Connection conn2 = Connection.open(sCluster, socketAddr, cTimeoutMillis))
+                        {
+                        System.out.println("Cluster " + sCluster + ":\t" + conn2.lookup(NS_STRING_PREFIX + sName));
+                        }
+                    }
+
+                if (sCluster != null)
+                    {
+                    isClusterSearchSuccessful.set(true);
+                    }
+                }
+            else
+                {
+                isClusterSearchSuccessful.set(true);
+                }
+            }
+        }
+
+    private static Set<InetAddress> getAddresses(String sHost)
+             throws IOException
+        {
+        Set<InetAddress> setAddr = new HashSet<>();
+
+        if (sHost.equals("localhost"))
+            {
+            for (Enumeration<NetworkInterface> iterNics = NetworkInterface.getNetworkInterfaces(); iterNics
+                    .hasMoreElements();)
+                {
+                for (Enumeration<InetAddress> iterAddr = iterNics.nextElement().getInetAddresses(); iterAddr
+                        .hasMoreElements();)
+                    {
+                    InetAddress addr = iterAddr.nextElement();
+                    setAddr.add(addr);
+                    }
+                }
+            }
+        else
+            {
+            Collections.addAll(setAddr, InetAddress.getAllByName(sHost));
+            }
+
+        return setAddr;
         }
 
     /**
