@@ -54,6 +54,7 @@ public class DefaultServiceDependencies
             m_cWorkerThreadsMin              = deps.getWorkerThreadCountMin();
             m_nWorkerPriority                = deps.getWorkerThreadPriority();
             m_healthCheckDependencies        = deps.getHealthCheckDependencies();
+            m_cGlobalTimeoutMillis           = deps.getGlobalTimeoutMillis();
             if (deps instanceof DefaultServiceDependencies)
                 {
                 DefaultServiceDependencies sDeps = (DefaultServiceDependencies) deps;
@@ -286,6 +287,26 @@ public class DefaultServiceDependencies
         m_healthCheckDependencies = deps;
         }
 
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public long getGlobalTimeoutMillis()
+        {
+        return m_cGlobalTimeoutMillis;
+        }
+
+    /**
+     * Set the global timeout.
+     *
+     * @param cMillis  the request timeout
+     */
+    @Injectable("timeout-milliseconds")
+    public void setGlobalimeoutMillis(long cMillis)
+        {
+        m_cGlobalTimeoutMillis = cMillis;
+        }
+
     // ----- Object methods -------------------------------------------------
 
     /**
@@ -296,6 +317,7 @@ public class DefaultServiceDependencies
         {
         return ClassHelper.getSimpleName(getClass())
                 + "{EventDispatcherThreadPriority=" + getEventDispatcherThreadPriority()
+                + ", GlobalTimeoutMillis=" + getGlobalTimeoutMillis()
                 + ", RequestTimeoutMillis=" + getRequestTimeoutMillis()
                 + ", SerializerFactory=" + getSerializerFactory()
                 + ", TaskHungThresholdMillis=" + getTaskHungThresholdMillis()
@@ -436,4 +458,9 @@ public class DefaultServiceDependencies
      * The service health check dependencies.
      */
     private HealthCheckDependencies m_healthCheckDependencies;
+
+    /**
+     * The request timeout.
+     */
+    private long m_cGlobalTimeoutMillis;
     }
