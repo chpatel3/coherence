@@ -523,6 +523,15 @@ public abstract class Grid
      * to this specific Service are written and read.
      */
     private java.util.List __m_WrapperStreamFactoryList;
+
+    /**
+     * Property GlobalTimeout
+     *
+     * A global timeout value for polls and PriorityTasks to use when
+     * no explicit request timeout value specified.
+     */
+    private long __m_GlobalTimeout;
+
     private static com.tangosol.util.ListMap __mapChildren;
     
     // Static initializer
@@ -760,7 +769,14 @@ public abstract class Grid
         {
         // import com.tangosol.net.PriorityTask;
         
-        long cTimeoutMillis = getRequestTimeout();
+        long cTimeoutMillis       = getRequestTimeout();
+        long cGlobalTimeoutMillis = getGlobalTimeout();
+
+        if (cGlobalTimeoutMillis > 0L && cTimeoutMillis == 0L)
+            {
+            cTimeoutMillis = cGlobalTimeoutMillis;
+            }
+
         if (msg instanceof PriorityTask)
             {
             cTimeoutMillis = adjustTimeout(cTimeoutMillis,
@@ -2150,7 +2166,18 @@ public abstract class Grid
         
         return cWait == 0L ? 1000L : cWait;
         }
-    
+
+    // Accessor for the property "GlobalTimeout"
+    /**
+     * Getter for property RequestTimeout.<p>
+    * A default timeout value for polls and PriorityTasks that don't explicitly
+    * specify the request timeout value.
+     */
+    public long getGlobalTimeout()
+        {
+        return __m_GlobalTimeout;
+        }
+
     // Accessor for the property "WrapperStreamFactoryAllList"
     /**
      * Getter for property WrapperStreamFactoryAllList.<p>
@@ -4682,14 +4709,25 @@ public abstract class Grid
     // Accessor for the property "RequestTimeout"
     /**
      * Setter for property RequestTimeout.<p>
-    * A default timeout value for polls and PriorityTasks that don't explicitly
-    * specify the request timeout value.
+     * A default timeout value for polls and PriorityTasks that don't explicitly
+     * specify the request timeout value.
      */
     public void setRequestTimeout(long cMillis)
         {
         __m_RequestTimeout = cMillis;
         }
-    
+
+    // Accessor for the property "GlobalTimeout"
+    /**
+     * Setter for property GlobalTimeout.<p>
+     * A global timeout value for polls and PriorityTasks to use
+     * when no explicit request timeout specified by the user.
+     */
+    public void setGlobalTimeout(long cMillis)
+        {
+        __m_GlobalTimeout = cMillis;
+        }
+
     // Accessor for the property "ResourceRegistry"
     /**
      * Setter for property ResourceRegistry.<p>
