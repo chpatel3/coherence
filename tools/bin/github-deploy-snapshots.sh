@@ -7,7 +7,10 @@ set -e
 # https://oss.oracle.com/licenses/upl.
 #
 
+env | sort
 pwd
+rm -fr $RUNNER_WORKSPACE/apidocs $RUNNER_WORKSPACE/docs
+
 CURRENT_VERSION=$(mvn -f prj help:evaluate -Dexpression=project.version -DforceStdout -q -nsu)
 
 if [ "${CURRENT_VERSION}" = "" ]; then
@@ -25,30 +28,30 @@ echo "Building version ${CURRENT_VERSION}"
 mvn -B clean install -Dproject.official=true -P-modules --file prj/pom.xml -DskipTests -s .github/maven/settings.xml
 mvn -B clean install -Dproject.official=true -Pmodules,-coherence,docs -nsu --file prj/pom.xml -DskipTests -s .github/maven/settings.xml
 
-echo "Deploying version ${CURRENT_VERSION}"
-mvn -B clean deploy -Dproject.official=true -P-modules -nsu --file prj/pom.xml -DskipTests -s .github/maven/settings.xml
-mvn -B clean deploy -Dproject.official=true -Pmodules,-coherence,docs -nsu --file prj/pom.xml -DskipTests -s .github/maven/settings.xml
+#echo "Deploying version ${CURRENT_VERSION}"
+#mvn -B clean deploy -Dproject.official=true -P-modules -nsu --file prj/pom.xml -DskipTests -s .github/maven/settings.xml
+#mvn -B clean deploy -Dproject.official=true -Pmodules,-coherence,docs -nsu --file prj/pom.xml -DskipTests -s .github/maven/settings.xml
+
+mv prj/coherence-javadoc/target/javadoc/apidocs $RUNNER_WORKSPACE/
+mv prj/docs/target/docs $RUNNER_WORKSPACE/
 
 echo "Deploying docs for version ${CURRENT_VERSION}"
 git stash save --keep-index --include-untracked || true
 git stash drop || true
 git checkout gh-pages
+git clean -d -f
+git status
 git config pull.rebase true
 git pull
 
 rm -rf "${CURRENT_VERSION}" || true
 mkdir -p "${CURRENT_VERSION}"/api || true
-mv prj/coherence-javadoc/target/javadoc/apidocs "${CURRENT_VERSION}"/api/java
-mv prj/docs/target/docs "${CURRENT_VERSION}"/docs
+mv $RUNNER_WORKSPACE/apidocs "${CURRENT_VERSION}"/api/java
+mv $RUNNER_WORKSPACE/docs "${CURRENT_VERSION}"/docs
 git add -A "${CURRENT_VERSION}"/*
-
-if [ "${HEAD_BRANCH}" = "master" ]; then
-  echo "Deploying docs for version ${CURRENT_VERSION} to latest-snapshot"
-  rm -rf latest-snapshot || true
-  cp -R "${CURRENT_VERSION}" latest-snapshot
-  git add -A latest-snapshot/*
-fi
 
 echo "Pushing docs for ${CURRENT_VERSION} to gh-pages"
 git commit -m "Update ${CURRENT_VERSION} docs"
-git push origin gh-pages
+git status
+git show
+# git push origin gh-pages
