@@ -42,7 +42,6 @@ import com.tangosol.util.Converter;
 import com.tangosol.util.Daemon;
 import com.tangosol.util.ExternalizableHelper;
 import com.tangosol.util.Filter;
-import com.tangosol.util.Filters;
 import com.tangosol.util.ImmutableArrayList;
 import com.tangosol.util.InvocableMap;
 
@@ -631,7 +630,6 @@ public class ReadWriteBackingMapTests
 
         // stop second member and check that restore/index build gets triggered for partitions coming back
         stopCacheServer(sServerName);
-
         // wait for server to stop
         Eventually.assertDeferred(() -> cache.getCacheService().getCluster().getMemberSet().size(),
                                   Matchers.is(1), within(5, TimeUnit.MINUTES));
@@ -1929,19 +1927,25 @@ public class ReadWriteBackingMapTests
 
     private void testCacheStoreUpdate(String sCacheName, boolean fUsePutAll)
         {
-        String               testName = "testCacheStoreUpdate-" + sCacheName + (fUsePutAll ? "-PutAll" : "Put");
-        NamedCache           cache    = getNamedCache(sCacheName);
-        AbstractTestStore    store    = getStore(cache);
-        ReadWriteBackingMap  rwbm     = getReadWriteBackingMap(cache);
-        long                 cDelay   = rwbm.isWriteBehind() ? rwbm.getWriteBehindMillis() + 500 : 0;
-        Converter            convDown = cache.getCacheService()
-                                                .getBackingMapManager().getContext().getKeyToInternalConverter();
+        String               testName      = "testCacheStoreUpdate-" + sCacheName + (fUsePutAll ? "-PutAll" : "-Put");
+        NamedCache           cache         = getNamedCache(sCacheName);
+        AbstractTestStore    store         = getStore(cache);
+        ReadWriteBackingMap  rwbm          = getReadWriteBackingMap(cache);
+        boolean              isWriteBehind = rwbm.isWriteBehind();
+        long                 cDelay        = isWriteBehind ? rwbm.getWriteBehindMillis() + 500 : 0;
+
+        System.out.println(" //  =>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>  // \n");
+        System.out.println("||||||||||| " + testName + " : isWriteBehind ==> " + isWriteBehind + " ||||||||||||");
+        System.out.println(" //  =>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>  // \n");
+
+        Converter            convDown      = cache.getCacheService()
+                                                     .getBackingMapManager().getContext().getKeyToInternalConverter();
 
         cache.clear();
         store.getStorageMap().clear();
         store.resetStats();
 
-        Eventually.assertDeferred(() -> cache.size(), is(0));
+        Eventually.assertDeferred(testName, () -> cache.size(), is(0));
 
         if (store instanceof TestBinaryCacheStore)
             {
@@ -1949,9 +1953,12 @@ public class ReadWriteBackingMapTests
                 {
                 public Object process(Entry entry)
                     {
-                    entry.update(new PofUpdater(Person.MOTHER_SSN), "STORED");
+                    Person p = (Person) entry.getValue();
+                    p.setMotherId("STORED");
+                    entry.setValue(p);
+                    //entry.update(new PofUpdater(Person.MOTHER_SSN), "STORED");
 
-                    return null;
+                    return entry;
                     }
                 });
             }
@@ -1961,19 +1968,28 @@ public class ReadWriteBackingMapTests
                 {
                 public Object process(Entry entry)
                     {
-                    entry.update(new PofUpdater(Person.MOTHER_SSN), "STORED");
+                    Person p = (Person) entry.getValue();
+                    p.setMotherId("STORED");
+                    entry.setValue(p);
+                    // entry.update(new PofUpdater(Person.MOTHER_SSN), "STORED");
 
-                    return null;
+                    return entry;
                     }
                 });
             // non-blocking needs delay
-            cDelay = 10000L;
+            cDelay = 5000L;
             }
+
+        System.out.println(" //  =>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>  // \n");
+        System.out.println("||||||||||| cDelay ==> " + cDelay + " ||||||||||||");
+        System.out.println(" //  =>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>  // \n");
 
         try
             {
             Map<Integer,Person> mapData = mapOfPeople(10);
             updateCache(cache, mapData, fUsePutAll);
+
+            Eventually.assertDeferred(testName, () -> cache.size(), is(10));
 
             if (cDelay > 0)
                 {
@@ -1981,27 +1997,32 @@ public class ReadWriteBackingMapTests
                 definiteSleep(cDelay);
                 }
 
-            Eventually.assertDeferred(() -> cache.size(), is(mapData.size()));
-
             for (int i = 0; i < mapData.size(); i++)
                 {
-                Eventually.assertThat(testName,
-                    invoking(this).getPerson(cache, i).getMotherId(), is("STORED"));
+                Eventually.assertThat(testName, getPerson(cache, i).getMotherId(), is("STORED"));
+
+                //Object key = mapData.keySet().toArray()[i];
+                //Eventually.assertDeferred(() -> cache.get(key), is(mapData.values().toArray()[i]));
+
                 if (cDelay > 0)
                     {
-                    final int ii = i;
+                    Binary bin = ((Binary) rwbm.getInternalCache().get(convDown.convert(i)));
+
+                    System.out.println(" //  =>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>  // \n");
+                    System.out.println("||||||||||| TestName: " + testName + " |||||||| RWBM ==> " + rwbm + " ||||||||||||");
+                    System.out.println(" //  =>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>=>  // \n");
 
                     // allow async processing to finish
-                    Eventually.assertDeferred(() -> ExternalizableHelper.isDecorated((Binary)
-                                                         rwbm.getInternalCache().get(convDown.convert(ii)),
-                                                         ExternalizableHelper.DECO_STORE),
-                                              is(false));
+                    Eventually.assertDeferred(testName + " : " + rwbm, () -> ExternalizableHelper.isDecorated(bin,
+                                              ExternalizableHelper.DECO_STORE), is(false));
                     }
                 }
             }
         finally
             {
             cache.destroy();
+            store.getStorageMap().clear();
+            store.resetStats();
             }
         }
 
