@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2024, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2025, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -630,7 +630,7 @@ public class ReadWriteBackingMapTests
             }
 
         // stop second member and check that restore/index build gets triggered for partitions coming back
-        stopCacheServer("storage1");
+        stopCacheServer(sServerName);
         // wait for server to stop
         Eventually.assertDeferred(() -> cache.getCacheService().getCluster().getMemberSet().size(),
                                   Matchers.is(1), within(5, TimeUnit.MINUTES));
@@ -1940,6 +1940,8 @@ public class ReadWriteBackingMapTests
         store.getStorageMap().clear();
         store.resetStats();
 
+        Eventually.assertDeferred(() -> cache.size(), is(0));
+
         if (store instanceof TestBinaryCacheStore)
             {
             ((TestBinaryCacheStore) store).setProcessor(new AbstractProcessor()
@@ -1964,7 +1966,7 @@ public class ReadWriteBackingMapTests
                     }
                 });
             // non-blocking needs delay
-            cDelay = 5000L;
+            cDelay = 10000L;
             }
 
         try
@@ -1978,6 +1980,8 @@ public class ReadWriteBackingMapTests
                 definiteSleep(cDelay);
                 }
 
+            Eventually.assertDeferred(() -> cache.size(), is(mapData.size()));
+
             for (int i = 0; i < mapData.size(); i++)
                 {
                 Eventually.assertThat(testName,
@@ -1990,7 +1994,7 @@ public class ReadWriteBackingMapTests
                     Eventually.assertDeferred(() -> ExternalizableHelper.isDecorated((Binary)
                                                          rwbm.getInternalCache().get(convDown.convert(ii)),
                                                          ExternalizableHelper.DECO_STORE),
-                                              is (false));
+                                              is(false));
                     }
                 }
             }
