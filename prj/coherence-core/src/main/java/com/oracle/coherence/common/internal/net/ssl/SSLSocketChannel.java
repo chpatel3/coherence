@@ -168,6 +168,7 @@ public class SSLSocketChannel
     public int read(ByteBuffer dst)
             throws IOException
         {
+        System.out.println("\n\n\n[SSLSocketChannel] : Reading from ByteBuffer : " + dst + "\n\n\n");
         ByteBuffer[] aBuffRead = f_aBuffSingleInbound;
         synchronized (aBuffRead)
             {
@@ -220,6 +221,7 @@ public class SSLSocketChannel
     public long read(ByteBuffer[] dsts, int offset, int length)
             throws IOException
         {
+        System.out.println("\n\n\n[SSLSocketChannel] : Reading from ByteBuffer[] with length: " + dsts.length + "\n\n\n");
         if (f_buffEncOut.hasRemaining())
             {
             synchronized (f_aBuffSingleOutbound)
