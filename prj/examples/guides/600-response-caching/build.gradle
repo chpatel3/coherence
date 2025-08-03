@@ -13,13 +13,13 @@ ext {
 	helidonversion = '4.0.5'
 	mainClass='io.helidon.microprofile.cdi.Main'
 }
-group = 'com.oracle.coherence.guides'
+group = 'com.oracle.coherence.ce.guides'
 version = coherenceVersion
 sourceCompatibility = '21'
 
 repositories {
-	mavenCentral()
-	mavenLocal()
+    mavenLocal()
+    mavenCentral()
 }
 
 dependencies {
