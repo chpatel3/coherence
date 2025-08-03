@@ -83,6 +83,7 @@ public class SSLSocketChannel
         m_fBlocking = channel.isBlocking();
 
         int cbPacket = engine.getSession().getPacketBufferSize();
+        System.out.println("\n\n\n SSLEngine.SSLSession.PacketBufferSize == " + cbPacket + "\n\n\n");
 
         ByteBuffer buffOut = f_buffEncOut = ByteBuffer.allocate(cbPacket);
         buffOut.flip();
@@ -168,6 +169,12 @@ public class SSLSocketChannel
     public int read(ByteBuffer dst)
             throws IOException
         {
+        //if (dst.capacity() == 65536)
+        //    {
+            System.out.println("[SSLSocketChannel] : Reading from ByteBuffer : " + dst);
+            // dst.clear();
+            // System.out.println("[SSLSocketChannel] : Reading from ByteBuffer : " + dst);
+        //    }
         ByteBuffer[] aBuffRead = f_aBuffSingleInbound;
         synchronized (aBuffRead)
             {
@@ -220,6 +227,7 @@ public class SSLSocketChannel
     public long read(ByteBuffer[] dsts, int offset, int length)
             throws IOException
         {
+        System.out.println("[SSLSocketChannel] : Reading from ByteBuffer[] with length: " + dsts.length);
         if (f_buffEncOut.hasRemaining())
             {
             synchronized (f_aBuffSingleOutbound)
@@ -247,6 +255,7 @@ public class SSLSocketChannel
             }
 
         runProtocol(); // no need to check return value here, if we've hit EOS it will eventually be reflected by returning -1 here
+        System.out.println("[SSLSocketChannel] : NUMBER OF BYTES READ : " + cb);
         return cb;
         }
 
