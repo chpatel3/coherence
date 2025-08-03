@@ -25,7 +25,7 @@ public class LocalSemaphore
      *                  this value may be negative, in which case releases
      *                  must occur before any acquires will be granted
      */
-    LocalSemaphore(int cPermits)
+    public LocalSemaphore(int cPermits)
         {
         f_semaphore = new Semaphore(cPermits);
         }
