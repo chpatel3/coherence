@@ -1294,6 +1294,7 @@
               </goals>
               <configuration>
                 <instructions>
+                  <Bundle-Version>${project.version.official}</Bundle-Version>
                   <Implementation-Title>${project.name}</Implementation-Title>
                   <Implementation-Version>${project.version.official}</Implementation-Version>
                   <Implementation-Build>${project.build.number}</Implementation-Build>
