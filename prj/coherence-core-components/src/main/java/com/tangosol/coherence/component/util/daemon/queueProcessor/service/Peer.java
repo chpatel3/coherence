@@ -2347,11 +2347,11 @@ public abstract class Peer
     // From interface: com.tangosol.net.messaging.ConnectionManager
     public void registerReceiver(com.tangosol.net.messaging.Channel.Receiver receiver)
         {
-        if (getServiceState() > SERVICE_INITIAL)
+        /*if (getServiceState() > SERVICE_INITIAL)
             {
             throw new IllegalStateException();
             }
-        
+        */
         if (receiver == null)
             {
             throw new IllegalArgumentException("receiver cannot be null");

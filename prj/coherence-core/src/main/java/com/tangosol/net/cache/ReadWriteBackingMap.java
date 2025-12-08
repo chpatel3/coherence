@@ -5873,8 +5873,8 @@ public class ReadWriteBackingMap
                 try
                     {
                     Binary binValue = entry.getBinaryValue();
-                    if (Base.equals(binValue, mapInternal.get(binKey)))
-                        {
+                    //if (Base.equals(binValue, mapInternal.get(binKey)))
+                    //    {
                         if (entry.isChanged())
                             {
                             // the store operation changed the value; replace
@@ -5913,7 +5913,7 @@ public class ReadWriteBackingMap
                             {
                             mapInternal.put(binKey, binValue);
                             }
-                        }
+                        //}
                     }
                 catch (RuntimeException e)
                     {

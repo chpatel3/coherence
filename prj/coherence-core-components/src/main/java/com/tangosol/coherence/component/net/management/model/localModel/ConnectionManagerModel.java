@@ -11,16 +11,22 @@
 package com.tangosol.coherence.component.net.management.model.localModel;
 
 import com.tangosol.coherence.component.util.Queue;
+import com.tangosol.coherence.component.util.daemon.queueProcessor.Service;
+import com.tangosol.coherence.component.util.daemon.queueProcessor.service.grid.ProxyService;
 import com.tangosol.coherence.component.util.daemon.queueProcessor.service.peer.Acceptor;
 import com.tangosol.coherence.component.util.daemon.queueProcessor.service.peer.acceptor.GrpcAcceptor;
 import com.tangosol.coherence.component.util.daemon.queueProcessor.service.peer.acceptor.HttpAcceptor;
 import com.tangosol.coherence.component.util.daemon.queueProcessor.service.peer.acceptor.MemcachedAcceptor;
 import com.tangosol.coherence.component.util.daemon.queueProcessor.service.peer.acceptor.TcpAcceptor;
+import com.tangosol.coherence.memcached.processor.GetProcessor;
 import com.tangosol.io.MultiBufferWriteBuffer;
+import com.tangosol.net.Cluster;
+import com.tangosol.net.ServiceMonitor;
 import com.tangosol.net.internal.SocketAddressHelper;
 import com.tangosol.util.Base;
 import com.tangosol.util.ClassHelper;
 import java.net.SocketAddress;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
@@ -906,7 +912,37 @@ public class ConnectionManagerModel
         {
         get_Acceptor().setDEBUG(fMessagingDebug);
         }
-    
+
+    public void disableAccess()
+        {
+        Acceptor acceptor = get_Acceptor();
+
+        if (acceptor instanceof TcpAcceptor)
+            {
+            ProxyService proxyService = ((ProxyService) ((TcpAcceptor) acceptor).getParentService());
+
+            ((TcpAcceptor) acceptor).getReceiverMap().remove(proxyService.getCacheServiceProxy().getName());
+
+            Base.log("Access to the Proxy service '" + proxyService.getInfo().getServiceName() +
+                     "' is disabled using MBean.");
+            }
+        }
+
+    public void enableAccess()
+        {
+        Acceptor acceptor = get_Acceptor();
+
+        if (acceptor instanceof TcpAcceptor)
+            {
+            ProxyService proxyService = ((ProxyService) ((TcpAcceptor) acceptor).getParentService());
+
+            ((TcpAcceptor) acceptor).registerReceiver(proxyService.getCacheServiceProxy());
+
+            Base.log("Access to the Proxy service '" + proxyService.getInfo().getServiceName() +
+                     "' is enabled using MBean.");
+            }
+        }
+
     // Declared at the super level
     /**
      * Must be supplemented at each specific Model implementation.

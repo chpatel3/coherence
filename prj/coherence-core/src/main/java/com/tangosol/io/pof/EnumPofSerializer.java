@@ -9,6 +9,8 @@ package com.tangosol.io.pof;
 
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 
 /**
@@ -54,8 +56,23 @@ public class EnumPofSerializer<E extends Enum<E>>
                     "EnumPofSerializer can only be used to deserialize enum types.");
             }
 
-        E enumValue = Enum.valueOf(clz, reader.readString(0));
-        reader.registerIdentity(enumValue);
+        E            enumValue  = null;
+        List<String> enumValues = new ArrayList<String>();
+
+        for (Object obj : clz.getEnumConstants())
+            {
+            enumValues.add(((Enum) obj).name());
+            }
+
+        String val = reader.readString(0);
+
+        if (enumValues.contains(val))
+            {
+            enumValue = Enum.valueOf(clz, val);
+            reader.registerIdentity(enumValue);
+            reader.readRemainder();
+            }
+
         reader.readRemainder();
 
         return enumValue;
