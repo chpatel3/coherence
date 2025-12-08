@@ -199,6 +199,12 @@ to find specific notes on changes suggested for production use.
     </authorized-hosts>
 
     <services>
+      <!-- global timeout that applies to all services only when set to a value other than 0.
+           The default value is 0 to make it no-op by default. But when set to a specific value
+           then applies to all the services to not default to "0" that is equivalent of setting
+           no timeout which is not desirable when not running in a standalone mode.
+      -->
+      <timeout-milliseconds system-property="coherence.service.timeout">0</timeout-milliseconds>
       <service id="1">
         <service-type>ReplicatedCache</service-type>
         <service-component>ReplicatedCache</service-component>

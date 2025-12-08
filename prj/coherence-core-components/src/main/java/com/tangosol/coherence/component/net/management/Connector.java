@@ -1587,9 +1587,10 @@ public class Connector
                     // it is possible during startup that announcements overlap
                     // resulting in multiple registerAll calls, however non-
                     // responsibility MBeans should never have multiple owners
-                    if (!member.equals(modelRemote.getModelOwner()))
+                    if (!modelRemote.isRefreshRequired() &&
+                            !member.equals(modelRemote.getModelOwner()))
                         {
-                        _trace("Unexpected multi-ownership for MBean: " + sName, 1);
+                        _trace("Unexpected multi-ownership for MBean: " + sName, 5);
                         }
                     }
                 modelRemote.setSnapshot(model);

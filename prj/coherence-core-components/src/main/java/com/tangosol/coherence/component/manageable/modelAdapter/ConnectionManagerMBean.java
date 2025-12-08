@@ -455,7 +455,33 @@ public class ConnectionManagerMBean
                 null,
                 });
             }
-        
+
+        // behavior disableAccess()
+            {
+            mapInfo.put("disableAccess()", new Object[]
+                {
+                "",
+                "disableAccess",
+                "V",
+                new String[] {},
+                new String[] {},
+                null,
+                });
+            }
+
+        // behavior enableAccess()
+            {
+            mapInfo.put("enableAccess()", new Object[]
+                {
+                "",
+                "enableAccess",
+                "V",
+                new String[] {},
+                new String[] {},
+                null,
+                });
+        }
+
         return mapInfo;
         }
     
@@ -769,5 +795,13 @@ public class ConnectionManagerMBean
     public void setMessagingDebug(boolean fDebug)
         {
         __m_MessagingDebug = fDebug;
+        }
+
+    public void disableAccess()
+        {
+        }
+
+    public void enableAccess()
+        {
         }
     }

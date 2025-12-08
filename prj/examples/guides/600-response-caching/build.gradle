@@ -21,7 +21,7 @@ ext {
 	mainClass='io.helidon.microprofile.cdi.Main'
 }
 
-group = 'com.oracle.coherence.guides'
+group = 'com.oracle.coherence.ce.guides'
 version = '${coherenceVersion}'
 
 // read shared dependency versions from pom.xml so the Maven and Gradle example builds stay aligned
@@ -44,8 +44,8 @@ def junitVersion = pomProperty('junit.jupiter.version')
 def junitPlatformVersion = junitVersion.replaceFirst(/^5\./, '1.')
 
 repositories {
-	mavenCentral()
-	mavenLocal()
+    mavenLocal()
+    mavenCentral()
 }
 
 dependencies {
