@@ -35,6 +35,14 @@ public interface ServiceDependencies
     public SerializerFactory getSerializerFactory();
 
     /**
+     * Obtain a global service timeout value. This is a timeout value to whhich
+     * each service defaults to when no request-timeout set on a service level.
+     *
+     * @return the default request timeout
+     */
+    public long getGlobalTimeoutMillis();
+
+    /**
      * Obtain a default request timeout value. This is also a default value for
      * {@link PriorityTask#getRequestTimeoutMillis() PriorityTasks}.
      *
