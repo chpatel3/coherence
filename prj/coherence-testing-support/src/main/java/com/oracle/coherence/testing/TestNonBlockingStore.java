@@ -292,7 +292,7 @@ public class TestNonBlockingStore<K, V>
                         }
                     }
 
-                delay(getDurationStore() + 200);
+                delay(getDurationStore());
                 getStorageMap().put(oKey, oValue);
                 getProcessor().process(binEntry);
                 observer.onNext(binEntry);
