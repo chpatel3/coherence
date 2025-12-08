@@ -133,6 +133,7 @@
         <module>examples</module>
         <module>executor</module>
         <module>extend</module>
+        <module>extend-proxy</module>
         <module>extractor</module>
         <module>filter</module>
         <module>graal</module>

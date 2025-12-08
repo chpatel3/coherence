@@ -826,6 +826,7 @@
         </xsd:annotation>
         <xsd:complexType>
             <xsd:sequence>
+                <xsd:element name="timeout-milliseconds" minOccurs="0" maxOccurs="1" />
                 <xsd:element ref="service" minOccurs="0" maxOccurs="unbounded" />
             </xsd:sequence>
             <xsd:attribute name="xml-override" use="optional" />

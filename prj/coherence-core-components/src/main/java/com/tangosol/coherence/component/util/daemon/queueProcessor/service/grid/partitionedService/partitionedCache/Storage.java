@@ -12822,7 +12822,7 @@ public class Storage
             {
             // import com.tangosol.net.cache.CacheMap;
 
-            checkMutable();
+            // checkMutable();
 
             setExpiryValue(cMillis >= 0 ? cMillis : CacheMap.EXPIRY_NEVER);
 
