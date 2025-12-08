@@ -67,6 +67,5 @@ jobs:
     - name: Upload Docs
       uses: actions/upload-artifact@v4
       with:
-        name: docs.zip
         path: prj/docs/target/docs.zip
         if-no-files-found: ignore

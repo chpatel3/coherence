@@ -22931,7 +22931,7 @@ public class PartitionedCache
          */
         protected static void checkSlidingExpiry(Storage storage, Storage.EntryStatus status, Storage.BinaryEntry entry)
             {
-            if (storage.isExpirySliding() && !entry.isValueChanged() && !entry.isReadOnly())
+            if (storage.isExpirySliding() && !entry.isValueChanged())
                 {
                 status.setPending(true);
                 try
