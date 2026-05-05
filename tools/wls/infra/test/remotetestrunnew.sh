@@ -506,7 +506,7 @@ for i in $TESTDATA; do
         timebomb_pid=$!
         if [ -n "$STAGE_NAME" ]; then
             infomsg "test $UNIX_DIR $FUNCTEST $STAGE_NAME clean $test_target starting..."
-            (set -x ; cd $DEV_ROOT && $MVN_TEST_CMD clean install -Pcoherence,-modules,${STAGE_NAME} && $MVN_TEST_CMD clean $test_target -P-coherence,modules,${STAGE_NAME} -nsu) > ${TMPDIR:?}/$JOBID/$test_name.log 2>&1
+            (set -x ; cd $DEV_ROOT && $MVN_TEST_CMD clean install -Pcoherence,-modules,${STAGE_NAME} && $MVN_TEST_CMD -fae clean $test_target -P-coherence,modules,${STAGE_NAME} -nsu) > ${TMPDIR:?}/$JOBID/$test_name.log 2>&1
             saved_status=$?
         else
             if [ "$REMOTE_TEST" = "remote.full" -a "$PARALLEL" = "true" ]; then
@@ -517,13 +517,13 @@ for i in $TESTDATA; do
             echo $REMOTE_TEST | grep "remote.function" >/dev/null
             if [ $? = 0 ]; then
                 test_name=${FUNCTEST}_functional
-                (set -x ; cd $DEV_ROOT/prj && $MVN_TEST_CMD -DskipTests clean install -Pcoherence,-modules && $MVN_TEST_CMD -DskipTests -P-coherence,modules -nsu clean install && $MVN_TEST_CMD -P-coherence,modules -nsu -pl $test_dir/$FUNCTEST clean $test_target) > ${TMPDIR:?}/$JOBID/$test_name.log 2>&1
+                (set -x ; cd $DEV_ROOT/prj && $MVN_TEST_CMD -DskipTests clean install -Pcoherence,-modules && $MVN_TEST_CMD -DskipTests -P-coherence,modules -nsu clean install && $MVN_TEST_CMD -fae -P-coherence,modules -nsu -pl $test_dir/$FUNCTEST clean $test_target) > ${TMPDIR:?}/$JOBID/$test_name.log 2>&1
             elif [ "$REMOTE_TEST" = "remote.distribution" ]; then
                 test_name=${FUNCTEST}_distribution
-                (set -x ; cd $DEV_ROOT/prj && $MVN_TEST_CMD clean install -Pcoherence,-modules && $MVN_TEST_CMD -amd -P-coherence,modules -nsu -pl $test_dir/$FUNCTEST $test_target) > ${TMPDIR:?}/$JOBID/$test_name.log 2>&1
+                (set -x ; cd $DEV_ROOT/prj && $MVN_TEST_CMD clean install -Pcoherence,-modules && $MVN_TEST_CMD -fae -amd -P-coherence,modules -nsu -pl $test_dir/$FUNCTEST $test_target) > ${TMPDIR:?}/$JOBID/$test_name.log 2>&1
             elif [ "$REMOTE_TEST" = "remote.compatibility" ]; then
                 test_name=${FUNCTEST}_compatibility
-                (set -x ; cd $DEV_ROOT/prj && $MVN_TEST_CMD clean install -Pcoherence,-modules && $MVN_TEST_CMD -P-coherence,modules -nsu -pl $test_dir/$FUNCTEST $test_target) > ${TMPDIR:?}/$JOBID/$test_name.log 2>&1
+                (set -x ; cd $DEV_ROOT/prj && $MVN_TEST_CMD clean install -Pcoherence,-modules && $MVN_TEST_CMD -fae -P-coherence,modules -nsu -pl $test_dir/$FUNCTEST $test_target) > ${TMPDIR:?}/$JOBID/$test_name.log 2>&1
             # main job of remote.full
             elif [ "$REMOTE_TEST" = "remote.full" ]; then
                 test_name=examples_maven
@@ -540,7 +540,7 @@ for i in $TESTDATA; do
                   warnmsg "test ${test_name} failed" $test_name.log
                 fi
             else
-                (set -x ; cd $DEV_ROOT && $MVN_TEST_CMD $test_target) > ${TMPDIR:?}/$JOBID/$test_name.log 2>&1
+                (set -x ; cd $DEV_ROOT && $MVN_TEST_CMD -fae $test_target) > ${TMPDIR:?}/$JOBID/$test_name.log 2>&1
             fi
         fi
         if [ -z "$saved_status" ]; then
