@@ -370,6 +370,12 @@ public class ClusterResource
     public Response diagnosticCmd(HttpRequest request)
         {
         String sCmd     = request.getFirstPathParameter(JFR_CMD);
+
+        if (!isJfrDiagnosticCommand(sCmd))
+            {
+            return unsupportedDiagnosticCommandResponse("cluster", sCmd);
+            }
+
         String sOptions = request.getFirstQueryParameter(OPTIONS);
         String sRole    = request.getFirstQueryParameter(ROLE_NAME);
         // execute the role based cluster wide JFR operation and return
