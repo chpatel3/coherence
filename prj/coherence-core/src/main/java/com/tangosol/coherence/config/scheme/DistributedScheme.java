@@ -203,10 +203,16 @@ public class DistributedScheme
 
             if (sType == null || sType.isEmpty())
                 {
+                bldrPrimaryMap = resolvePrimaryStorageScheme(bldrPrimaryMap);
+
                 // COH-7138 default to flash if the backing map is ram or flash
                 if (bldrPrimaryMap instanceof FlashJournalScheme || bldrPrimaryMap instanceof RamJournalScheme)
                     {
                     nType = BackingMapScheme.FLASHJOURNAL;
+                    }
+                else if (bldrPrimaryMap instanceof JournalScheme)
+                    {
+                    nType = BackingMapScheme.JOURNAL;
                     }
                 }
             else
@@ -215,6 +221,40 @@ public class DistributedScheme
                 }
 
             return nType;
+            }
+
+        /**
+         * Resolve the storage scheme that backs the primary map.
+         *
+         * @param bldrPrimaryMap  the primary map builder
+         *
+         * @return the unwrapped storage scheme
+         */
+        private MapBuilder resolvePrimaryStorageScheme(MapBuilder bldrPrimaryMap)
+            {
+            while (true)
+                {
+                if (bldrPrimaryMap == null)
+                    {
+                    return null;
+                    }
+                else if (bldrPrimaryMap instanceof BackingMapScheme)
+                    {
+                    bldrPrimaryMap = ((BackingMapScheme) bldrPrimaryMap).getInnerScheme();
+                    }
+                else if (bldrPrimaryMap instanceof WrapperCachingScheme)
+                    {
+                    bldrPrimaryMap = ((WrapperCachingScheme) bldrPrimaryMap).getCachingScheme();
+                    }
+                else if (bldrPrimaryMap instanceof ReadWriteBackingMapScheme)
+                    {
+                    bldrPrimaryMap = ((ReadWriteBackingMapScheme) bldrPrimaryMap).getInternalScheme();
+                    }
+                else
+                    {
+                    return bldrPrimaryMap;
+                    }
+                }
             }
 
         /**
@@ -365,6 +405,10 @@ public class DistributedScheme
             else if (sType.equalsIgnoreCase("on-heap"))
                 {
                 nType = BackingMapScheme.ON_HEAP;
+                }
+            else if (sType.equalsIgnoreCase("journal"))
+                {
+                nType = BackingMapScheme.JOURNAL;
                 }
             else if (sType.equalsIgnoreCase("file-mapped"))
                 {

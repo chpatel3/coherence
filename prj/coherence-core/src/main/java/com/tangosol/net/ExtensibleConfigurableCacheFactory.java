@@ -43,6 +43,7 @@ import com.tangosol.coherence.config.scheme.ClusteredCachingScheme;
 import com.tangosol.coherence.config.scheme.DistributedScheme;
 import com.tangosol.coherence.config.scheme.ExternalScheme;
 import com.tangosol.coherence.config.scheme.FlashJournalScheme;
+import com.tangosol.coherence.config.scheme.JournalScheme;
 import com.tangosol.coherence.config.scheme.ObservableCachingScheme;
 import com.tangosol.coherence.config.scheme.PagedExternalScheme;
 import com.tangosol.coherence.config.scheme.ReadWriteBackingMapScheme;
@@ -2030,13 +2031,20 @@ public class ExtensibleConfigurableCacheFactory
 
             // COH-7138 : flashJournal is explicitly set by default if the backing map is any journal,
             // see DistributedScheme.BackupMapConfig.resolveType()
-            if (nType == BackingMapScheme.FLASHJOURNAL)
+            if (nType == BackingMapScheme.FLASHJOURNAL || nType == BackingMapScheme.JOURNAL)
                 {
-                // if the BackingMapScheme is a FlashJournalScheme then use it, else create a temporary one
-                // for the backup map.
+                // if the backing map scheme matches the backup type then use it,
+                // else create a temporary one for the backup map.
                 AbstractLocalCachingScheme<?> journalScheme = schemeDist.getBackingMapScheme();
 
-                journalScheme = journalScheme instanceof FlashJournalScheme ? journalScheme : new FlashJournalScheme();
+                if (nType == BackingMapScheme.FLASHJOURNAL)
+                    {
+                    journalScheme = journalScheme instanceof FlashJournalScheme ? journalScheme : new FlashJournalScheme();
+                    }
+                else
+                    {
+                    journalScheme = journalScheme instanceof JournalScheme ? journalScheme : new JournalScheme();
+                    }
 
                 return journalScheme.realizeMap(resolver, dependencies);
                 }
@@ -2153,6 +2161,7 @@ public class ExtensibleConfigurableCacheFactory
                     case BackingMapScheme.SCHEME :
                     case BackingMapScheme.RAMJOURNAL :
                     case BackingMapScheme.FLASHJOURNAL :
+                    case BackingMapScheme.JOURNAL :
                         {
                         try
                             {
@@ -2198,6 +2207,13 @@ public class ExtensibleConfigurableCacheFactory
             ParameterResolver resolver = getResolver(sName);
             int     nType              = getBackupMapType(schemeDist, resolver);
             boolean fPartitionDefault  = nType != BackingMapScheme.FILE_MAPPED;
+
+            if (nType == BackingMapScheme.JOURNAL)
+                {
+                // JournalScheme already realizes a PartitionAwareBackingMap; wrapping it in
+                // Storage's backup PSBM would create a nested, uninitialized partition map.
+                return false;
+                }
 
             if (nType == BackingMapScheme.SCHEME)
                 {

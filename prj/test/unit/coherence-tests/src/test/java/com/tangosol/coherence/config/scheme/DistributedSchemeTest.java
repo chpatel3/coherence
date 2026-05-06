@@ -93,7 +93,20 @@ public class DistributedSchemeTest
         assertEquals("",config.getDirectory(resolver));
         assertEquals(new MemorySize("1M").getByteCount(), config.getInitialSize(resolver));
         assertEquals(new MemorySize("1024M").getByteCount(), config.getMaximumSize(resolver));
+        assertEquals(BackingMapScheme.ON_HEAP,config.resolveType(resolver, null));
         assertEquals(BackingMapScheme.ON_HEAP,config.resolveType(resolver, new LocalScheme()));
+        assertEquals(BackingMapScheme.JOURNAL, config.resolveType(resolver, new JournalScheme()));
+
+        BackingMapScheme schemeBacking = new BackingMapScheme();
+        schemeBacking.setInnerScheme(new JournalScheme());
+        assertEquals(BackingMapScheme.JOURNAL, config.resolveType(resolver, schemeBacking));
+
+        WrapperCachingScheme schemeWrapper = new WrapperCachingScheme(new JournalScheme());
+        assertEquals(BackingMapScheme.JOURNAL, config.resolveType(resolver, schemeWrapper));
+
+        ReadWriteBackingMapScheme schemeReadWrite = new ReadWriteBackingMapScheme();
+        schemeReadWrite.setInternalScheme(new JournalScheme());
+        assertEquals(BackingMapScheme.JOURNAL, config.resolveType(resolver, schemeReadWrite));
         }
 
     /**
@@ -131,6 +144,9 @@ public class DistributedSchemeTest
 
         config.setType(new LiteralExpression<String>("on-heap"));
         assertEquals(BackingMapScheme.ON_HEAP,config.resolveType(resolver, new LocalScheme()));
+
+        config.setType(new LiteralExpression<String>("journal"));
+        assertEquals(BackingMapScheme.JOURNAL,config.resolveType(resolver, new LocalScheme()));
 
         config.setType(new LiteralExpression<String>("scheme"));
         assertEquals(BackingMapScheme.SCHEME,config.resolveType(resolver, new LocalScheme()));

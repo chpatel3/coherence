@@ -726,6 +726,7 @@
             <xsd:element ref="flashjournal-scheme" />
             <xsd:element ref="ramjournal-scheme" />
             <xsd:element ref="caffeine-scheme" />
+            <xsd:element ref="journal-scheme" />
         </xsd:choice>
     </xsd:group>
 
@@ -1385,6 +1386,36 @@
                     minOccurs="0" maxOccurs="unbounded" />
              </xsd:sequence>
              <xsd:anyAttribute namespace="##other" processContents="lax" />
+        </xsd:complexType>
+    </xsd:element>
+
+    <xsd:element name="journal-scheme">
+        <xsd:annotation>
+            <xsd:documentation>
+                The journal-scheme element configures a persistent journal-backed
+                backing map. The backing map reads from and writes to the
+                partition's JournalPersistentStore, which also serves as the
+                durable persistent store for the partition.
+
+                When journal-scheme is used, the backing map itself provides
+                persistence, so the normal persistence side-channel is bypassed
+                for those mutations to avoid duplicate durable writes.
+
+                Requires the service to be configured with journal persistence
+                (persistence-type=journal in the persistence environment).
+
+                Used in: standalone-caching-scheme
+            </xsd:documentation>
+        </xsd:annotation>
+        <xsd:complexType>
+            <xsd:sequence>
+                <xsd:element ref="scheme-name" minOccurs="0" />
+                <xsd:element ref="scheme-ref" minOccurs="0" />
+                <xsd:element ref="listener" minOccurs="0" />
+                <xsd:any namespace="##other" processContents="lax"
+                    minOccurs="0" maxOccurs="unbounded" />
+            </xsd:sequence>
+            <xsd:anyAttribute namespace="##other" processContents="lax" />
         </xsd:complexType>
     </xsd:element>
 
@@ -3740,7 +3771,8 @@
                             The type element specifies the type of the storage
                             used to hold the backup data.
 
-                            Valid values are "on-heap",  "file-mapped",
+                            Valid values are "on-heap", "file-mapped",
+                            "ramjournal", "flashjournal", "journal",
                             "custom" or "scheme".
 
                             The corresponding implementations classes are
@@ -3763,6 +3795,7 @@
                         <xsd:simpleContent>
                             <xsd:restriction base="coherence-string-type">
                                 <xsd:enumeration value="on-heap" />
+                                <xsd:enumeration value="journal" />
                                 <xsd:enumeration value="file-mapped" />
                                 <xsd:enumeration value="custom" />
                                 <xsd:enumeration value="scheme" />

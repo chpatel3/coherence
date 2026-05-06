@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2022, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -128,6 +128,34 @@ public abstract class AbstractPersistentStoreTest
         store = (AbstractPersistentStore) manager.open(TEST_STORE_ID, null);
 
         assertEquals(0, store.extents().length);
+        }
+
+    @Test
+    public void testMoveExtents()
+            throws IOException
+        {
+        AbstractPersistenceManager manager = m_manager;
+        AbstractPersistentStore    store   = m_store;
+
+        assertTrue(store.ensureExtent(1));
+        assertTrue(store.ensureExtent(3));
+
+        store.store(1, BINARY_KEY_1, BINARY_VALUE_1, null);
+        store.store(3, BINARY_KEY_2, BINARY_VALUE_2, null);
+
+        store.moveExtents(new long[] {1L, 3L}, new long[] {2L, 4L});
+
+        assertArrayEquals(new long[] {2L, 4L}, store.extents());
+        assertEquals(BINARY_VALUE_1, store.load(2, BINARY_KEY_1));
+        assertEquals(BINARY_VALUE_2, store.load(4, BINARY_KEY_2));
+
+        manager.release();
+        m_manager = manager = createPersistenceManager();
+        store = (AbstractPersistentStore) manager.open(TEST_STORE_ID, null);
+
+        assertArrayEquals(new long[] {2L, 4L}, store.extents());
+        assertEquals(BINARY_VALUE_1, store.load(2, BINARY_KEY_1));
+        assertEquals(BINARY_VALUE_2, store.load(4, BINARY_KEY_2));
         }
 
     @Test

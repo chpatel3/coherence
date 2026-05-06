@@ -1,0 +1,13 @@
+# key<TAB>json-value
+the-godfather	{"title":"The Godfather","year":1972,"director":"Francis Ford Coppola","genre":["Crime","Drama"],"runtimeMinutes":175,"rating":"R"}
+the-empire-strikes-back	{"title":"The Empire Strikes Back","year":1980,"director":"Irvin Kershner","genre":["Adventure","Sci-Fi"],"runtimeMinutes":124,"rating":"PG"}
+raiders-of-the-lost-ark	{"title":"Raiders of the Lost Ark","year":1981,"director":"Steven Spielberg","genre":["Adventure","Action"],"runtimeMinutes":115,"rating":"PG"}
+blade-runner	{"title":"Blade Runner","year":1982,"director":"Ridley Scott","genre":["Sci-Fi","Thriller"],"runtimeMinutes":117,"rating":"R"}
+back-to-the-future	{"title":"Back to the Future","year":1985,"director":"Robert Zemeckis","genre":["Adventure","Comedy"],"runtimeMinutes":116,"rating":"PG"}
+the-matrix	{"title":"The Matrix","year":1999,"director":"The Wachowskis","genre":["Action","Sci-Fi"],"runtimeMinutes":136,"rating":"R"}
+spirited-away	{"title":"Spirited Away","year":2001,"director":"Hayao Miyazaki","genre":["Animation","Fantasy"],"runtimeMinutes":125,"rating":"PG"}
+the-lord-of-the-rings-the-return-of-the-king	{"title":"The Lord of the Rings: The Return of the King","year":2003,"director":"Peter Jackson","genre":["Adventure","Fantasy"],"runtimeMinutes":201,"rating":"PG-13"}
+inception	{"title":"Inception","year":2010,"director":"Christopher Nolan","genre":["Action","Sci-Fi"],"runtimeMinutes":148,"rating":"PG-13"}
+mad-max-fury-road	{"title":"Mad Max: Fury Road","year":2015,"director":"George Miller","genre":["Action","Adventure"],"runtimeMinutes":120,"rating":"R"}
+arrival	{"title":"Arrival","year":2016,"director":"Denis Villeneuve","genre":["Drama","Sci-Fi"],"runtimeMinutes":116,"rating":"PG-13"}
+oppenheimer	{"title":"Oppenheimer","year":2023,"director":"Christopher Nolan","genre":["Biography","Drama"],"runtimeMinutes":180,"rating":"R"}

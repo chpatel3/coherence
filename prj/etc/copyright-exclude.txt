@@ -69,6 +69,7 @@ cache-config-UTF8-BOM.xml
 .sql
 .svg
 .txt
+.tsv
 .war
 .yaml
 .zip

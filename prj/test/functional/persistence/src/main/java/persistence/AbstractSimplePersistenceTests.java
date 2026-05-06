@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -97,8 +97,6 @@ import com.oracle.coherence.testing.AbstractFunctionalTest;
 import com.oracle.coherence.testing.AbstractRollingRestartTest;
 
 import org.junit.BeforeClass;
-import org.junit.Test;
-
 import static com.oracle.bedrock.deferred.DeferredHelper.invoking;
 import static com.oracle.bedrock.deferred.DeferredHelper.within;
 import static org.hamcrest.CoreMatchers.is;
@@ -138,7 +136,6 @@ public abstract class AbstractSimplePersistenceTests
     /**
      * Tests persistence and recovery of a single cache server.
      */
-    @Test
     public void testSingleServer()
             throws IOException
         {
@@ -150,7 +147,6 @@ public abstract class AbstractSimplePersistenceTests
     /**
      * Tests persistence and recovery of a 2 cache servers with async backups with SEONE enabled.
      */
-    @Test
     public void testSingleServerAsyncSEONE()
             throws IOException
         {
@@ -160,7 +156,6 @@ public abstract class AbstractSimplePersistenceTests
     /**
      * Tests persistence and recovery of a 2 cache servers with async backups with SEONE disabled.
      */
-    @Test
     public void testSingleServerAsync()
             throws IOException
         {
@@ -171,7 +166,6 @@ public abstract class AbstractSimplePersistenceTests
      * Tests persistence and recovery of a 2 cache servers with worker threads
      * with SEONE enabled.
      */
-    @Test
     public void testSingleServerWorkersSEONE()
             throws IOException
         {
@@ -183,7 +177,6 @@ public abstract class AbstractSimplePersistenceTests
      * Tests persistence and recovery of a 2 cache servers with worker threads
      * with SEONE disabled.
      */
-    @Test
     public void testSingleServerWorkers()
             throws IOException
         {
@@ -195,7 +188,6 @@ public abstract class AbstractSimplePersistenceTests
      * Tests persistence and recovery of a 2 cache servers with async backups
      * and worker threads with SEONE enabled.
      */
-    @Test
     public void testSingleServerAsyncWorkersSEONE()
             throws IOException
         {
@@ -207,7 +199,6 @@ public abstract class AbstractSimplePersistenceTests
      * Tests persistence and recovery of a 2 cache servers with async backups
      * and worker threads.
      */
-    @Test
     public void testSingleServerAsyncWorkers()
             throws IOException
         {
@@ -218,7 +209,6 @@ public abstract class AbstractSimplePersistenceTests
     /**
      * Tests the create and recover snapshot functionality.
      */
-    @Test
     public void testPassiveSnapshot()
             throws IOException, MBeanException
         {
@@ -228,7 +218,6 @@ public abstract class AbstractSimplePersistenceTests
     /**
      * Tests the saving and recovery of data with TTL through snapshots
      */
-    @Test
     public void testSnapshotRecoveryWithTTL()
             throws IOException, MBeanException
         {
@@ -238,7 +227,6 @@ public abstract class AbstractSimplePersistenceTests
     /**
      * Tests the saving and recovery of data with TTL through snapshots with partitioned backing map
      */
-    @Test
     public void testSnapshotRecoveryWithTTLPartitioned()
             throws IOException, MBeanException
         {
@@ -248,7 +236,6 @@ public abstract class AbstractSimplePersistenceTests
     /**
      * Tests the saving and recovery of data with TTL
      */
-    @Test
     public void testRecoveryWithTTL()
             throws IOException, MBeanException
         {
@@ -408,7 +395,6 @@ public abstract class AbstractSimplePersistenceTests
     /**
      * Tests the create and recover snapshot functionality.
      */
-    @Test
     public void testActiveSnapshot()
             throws IOException, MBeanException
         {
@@ -418,7 +404,6 @@ public abstract class AbstractSimplePersistenceTests
     /**
      * Test archivers while in active mode for up to 4 servers.
      */
-    @Test
     public void testActiveArchiver()
             throws IOException, NoSuchMethodException, IllegalAccessException,
             InvocationTargetException, MBeanException
@@ -429,7 +414,6 @@ public abstract class AbstractSimplePersistenceTests
     /**
      * Test for a regression in Bug 25522362 - Retrieval of Archived Snapshot fails in 2 member cluster setup.
      */
-    @Test
     public void testBug25522362Regression() throws IOException, NoSuchMethodException, IllegalAccessException,
             InvocationTargetException, MBeanException
         {
@@ -439,7 +423,6 @@ public abstract class AbstractSimplePersistenceTests
      /**
       * Test archivers while in passive (on-demand) mode for up to 3 servers.
       */
-    @Test
     public void testPassiveArchiver()
             throws IOException, NoSuchMethodException, IllegalAccessException,
             InvocationTargetException, MBeanException
@@ -450,7 +433,6 @@ public abstract class AbstractSimplePersistenceTests
     /**
      * Test tools API using MBeanServerProxy.
      */
-    @Test
     public void testToolsAPIWithProxy()
             throws IOException, NoSuchMethodException, IllegalAccessException, InvocationTargetException,
                    MBeanException, ExecutionException
@@ -461,7 +443,6 @@ public abstract class AbstractSimplePersistenceTests
     /**
      * Test multiple restarts and wait for balanced between each one.
      */
-    @Test
     public void testMultipleRestartsBalanced()
             throws IOException, MBeanException
         {
@@ -471,7 +452,6 @@ public abstract class AbstractSimplePersistenceTests
     /**
      * Test multiple restarts and wait for balanced between each one.
      */
-    @Test
     public void testMultipleRestartsBalancedBackup()
             throws IOException, MBeanException
         {
@@ -481,7 +461,6 @@ public abstract class AbstractSimplePersistenceTests
     /**
      * Test truncate removes persisted data.
      */
-    @Test
     public void testTruncate()
             throws IOException
         {
@@ -494,14 +473,12 @@ public abstract class AbstractSimplePersistenceTests
      * @throws IOException
      * @throws MBeanException
      */
-    @Test
     public void testCqcSnapshotRecovery()
             throws IOException, MBeanException
         {
         testCqcSnapshotRecovery("testCqcSnapshot" + getPersistenceManagerName(), "simple-persistent");
         }
 
-    @Test
     public void testPersistenceRecoveryLogsMessage()
             throws IOException, InterruptedException
         {
@@ -700,7 +677,7 @@ public abstract class AbstractSimplePersistenceTests
                     PersistentStore<ReadBuffer> store = manager.open(s, null);
                     try
                         {
-                        LongArray la = CachePersistenceHelper.getCacheNames(store);
+                        LongArray la = CachePersistenceHelper.getCacheNamesForActiveRecovery(store);
                         if (GUIDHelper.getPartition(s) == nPart)
                             {
                             assertEquals(1, la.getSize());
@@ -768,6 +745,172 @@ public abstract class AbstractSimplePersistenceTests
             stopAllApplications();
             CacheFactory.shutdown();
             FileHelper.deleteDirSilent(fileActive);
+            FileHelper.deleteDirSilent(fileSnapshot);
+            FileHelper.deleteDirSilent(fileTrash);
+            }
+        }
+
+    /**
+     * A small snapshot/recovery smoke test for the functional suite.  The full
+     * snapshot matrix lives in the endurance subclasses.
+     *
+     * @param sServer          the prefix name of the server to create
+     * @param sPersistentCache the name of the cache
+     * @param fActive          true iff the server should be in active persistence mode
+     */
+    protected void testSnapshotSmoke(String sServer, String sPersistentCache, boolean fActive)
+            throws IOException, MBeanException
+        {
+        File fileSnapshot = FileHelper.createTempDir();
+        File fileActive   = FileHelper.createTempDir();
+        File fileTrash    = FileHelper.createTempDir();
+
+        Properties props = new Properties();
+        props.setProperty("test.persistence.mode", fActive ? "active" : "on-demand");
+        props.setProperty("test.persistence.active.dir", fileActive.getAbsolutePath());
+        props.setProperty("test.persistence.trash.dir", fileTrash.getAbsolutePath());
+        props.setProperty("test.persistence.snapshot.dir", fileSnapshot.getAbsolutePath());
+        props.setProperty("coherence.management", "all");
+        props.setProperty("coherence.management.remote", "true");
+        props.setProperty("coherence.distribution.2server", "false");
+        props.setProperty("test.threads", "1");
+        props.setProperty("coherence.override", "common-tangosol-coherence-override.xml");
+
+        ConfigurableCacheFactory factory = CacheFactory.getCacheFactoryBuilder()
+                .getConfigurableCacheFactory("client-cache-config.xml", null);
+        setFactory(factory);
+
+        NamedCache              cache   = getNamedCache(sPersistentCache);
+        DistributedCacheService service = (DistributedCacheService) cache.getCacheService();
+        String                  sName   = service.getInfo().getServiceName();
+
+        startCacheServer(sServer + "-1", getProjectName(), getCacheConfigPath(), props);
+
+        try
+            {
+            Eventually.assertThat(invoking(service).getOwnershipEnabledMembers().size(), is(1));
+            waitForBalanced(service);
+
+            cache.put("foo", "bar");
+            Map<Integer, Integer> map = new HashMap<>();
+            for (int i = 0; i < 10; i++)
+                {
+                map.put(i, i);
+                }
+            cache.putAll(map);
+
+            PersistenceTestHelper helper = new PersistenceTestHelper();
+            helper.createSnapshot(sName, "snapshot-smoke");
+
+            cache.put("foo", "BAR");
+            cache.put("after-snapshot", "value");
+
+            helper.recoverSnapshot(sName, "snapshot-smoke");
+            waitForBalanced(service);
+
+            assertEquals("bar", cache.get("foo"));
+            assertNull(cache.get("after-snapshot"));
+            for (int i = 0; i < 10; i++)
+                {
+                assertEquals(i, cache.get(i));
+                }
+            }
+        finally
+            {
+            stopAllApplications();
+            CacheFactory.shutdown();
+
+            FileHelper.deleteDirSilent(fileActive);
+            FileHelper.deleteDirSilent(fileSnapshot);
+            FileHelper.deleteDirSilent(fileTrash);
+            }
+        }
+
+    /**
+     * A small active-backup recovery smoke test for the functional suite.
+     *
+     * @param sServer          the prefix name of the servers to create
+     * @param sPersistentCache the name of the cache
+     */
+    protected void testActiveBackupSmoke(String sServer, String sPersistentCache)
+            throws IOException, MBeanException
+        {
+        File fileSnapshot = FileHelper.createTempDir();
+        File fileTrash    = FileHelper.createTempDir();
+        File fileActive1  = FileHelper.createTempDir();
+        File fileBackup1  = FileHelper.createTempDir();
+        File fileActive2  = FileHelper.createTempDir();
+        File fileBackup2  = FileHelper.createTempDir();
+
+        Properties props = new Properties();
+        props.setProperty("test.persistence.mode", "active-backup");
+        props.setProperty("test.persistence.trash.dir", fileTrash.getAbsolutePath());
+        props.setProperty("test.persistence.snapshot.dir", fileSnapshot.getAbsolutePath());
+        props.setProperty("test.persistence.members", "2");
+        props.setProperty("test.distribution.members", "2");
+        props.setProperty("test.threads", "1");
+        props.setProperty("coherence.distribution.2server", "false");
+        props.setProperty("coherence.override", "common-tangosol-coherence-override.xml");
+
+        Properties props1 = new Properties();
+        props1.putAll(props);
+        props1.setProperty("test.persistence.active.dir", fileActive1.getAbsolutePath());
+        props1.setProperty("test.persistence.backup.dir", fileBackup1.getAbsolutePath());
+
+        Properties props2 = new Properties();
+        props2.putAll(props);
+        props2.setProperty("test.persistence.active.dir", fileActive2.getAbsolutePath());
+        props2.setProperty("test.persistence.backup.dir", fileBackup2.getAbsolutePath());
+
+        ConfigurableCacheFactory factory = CacheFactory.getCacheFactoryBuilder()
+                .getConfigurableCacheFactory("client-cache-config.xml", null);
+        setFactory(factory);
+
+        NamedCache              cache   = getNamedCache(sPersistentCache);
+        DistributedCacheService service = (DistributedCacheService) cache.getCacheService();
+        Cluster                 cluster = service.getCluster();
+
+        try
+            {
+            startCacheServer(sServer + "-1", getProjectName(), getCacheConfigPath(), props1);
+            startCacheServer(sServer + "-2", getProjectName(), getCacheConfigPath(), props2);
+
+            Eventually.assertThat(invoking(service).getOwnershipEnabledMembers().size(), is(2));
+            waitForBalanced(service);
+
+            cache.put("foo", "bar");
+            Map<Integer, Integer> map = new HashMap<>();
+            for (int i = 0; i < 10; i++)
+                {
+                map.put(i, i);
+                }
+            cache.putAll(map);
+
+            stopCacheServer(sServer + "-1");
+            stopCacheServer(sServer + "-2");
+            Eventually.assertThat(invoking(cluster).getMemberSet().size(), is(1));
+
+            startCacheServer(sServer + "-restart-1", getProjectName(), getCacheConfigPath(), props1);
+            startCacheServer(sServer + "-restart-2", getProjectName(), getCacheConfigPath(), props2);
+
+            Eventually.assertThat(invoking(service).getOwnershipEnabledMembers().size(), is(2));
+            waitForBalanced(service);
+
+            assertEquals("bar", cache.get("foo"));
+            for (int i = 0; i < 10; i++)
+                {
+                assertEquals(i, cache.get(i));
+                }
+            }
+        finally
+            {
+            stopAllApplications();
+            CacheFactory.shutdown();
+
+            FileHelper.deleteDirSilent(fileActive1);
+            FileHelper.deleteDirSilent(fileBackup1);
+            FileHelper.deleteDirSilent(fileActive2);
+            FileHelper.deleteDirSilent(fileBackup2);
             FileHelper.deleteDirSilent(fileSnapshot);
             FileHelper.deleteDirSilent(fileTrash);
             }

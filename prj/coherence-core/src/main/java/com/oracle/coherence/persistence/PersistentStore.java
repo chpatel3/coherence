@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2024, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -85,6 +85,43 @@ public interface PersistentStore<R>
      * @param lNewExtentId  the new extent identifier
      */
     public void moveExtent(long lOldExtentId, long lNewExtentId);
+
+    /**
+     * Move a set of extents from old identifiers to new identifiers.
+     * <p>
+     * The two arrays must be non-null and have the same length. Element
+     * {@code i} in {@code alOldExtentIds} is moved to element {@code i} in
+     * {@code alNewExtentIds}.
+     * <p>
+     * The default implementation delegates to {@link #moveExtent(long, long)}
+     * for each pair in order and is therefore not atomic across the full
+     * batch. If one move fails, earlier pairs may already have been applied.
+     * Implementations are free to provide stronger semantics, including
+     * atomicity across the batch, and should document any such guarantee.
+     *
+     * @param alOldExtentIds  the old extent identifiers
+     * @param alNewExtentIds  the new extent identifiers
+     *
+     * @throws IllegalArgumentException if either array is {@code null} or if
+     *         the array lengths differ
+     */
+    public default void moveExtents(long[] alOldExtentIds, long[] alNewExtentIds)
+        {
+        if (alOldExtentIds == null || alNewExtentIds == null)
+            {
+            throw new IllegalArgumentException("extent identifier arrays cannot be null");
+            }
+
+        if (alOldExtentIds.length != alNewExtentIds.length)
+            {
+            throw new IllegalArgumentException("extent identifier array lengths must match");
+            }
+
+        for (int i = 0; i < alOldExtentIds.length; i++)
+            {
+            moveExtent(alOldExtentIds[i], alNewExtentIds[i]);
+            }
+        }
 
     /**
      * Return a list of the extent identifiers in the underlying store.

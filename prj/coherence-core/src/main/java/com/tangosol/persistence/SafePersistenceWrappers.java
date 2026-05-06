@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2024, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -848,6 +848,19 @@ public class SafePersistenceWrappers
             try
                 {
                 getStore().moveExtent(lOldExtentId, lNewExtentId);
+                }
+            catch (Throwable t)
+                {
+                onException((T) t);
+                }
+            }
+
+        @Override
+        public void moveExtents(long[] alOldExtentIds, long[] alNewExtentIds)
+            {
+            try
+                {
+                getStore().moveExtents(alOldExtentIds, alNewExtentIds);
                 }
             catch (Throwable t)
                 {

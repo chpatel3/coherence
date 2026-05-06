@@ -73,6 +73,7 @@ import com.tangosol.net.partition.PartitionStatistics;
 import com.tangosol.net.partition.SimpleAssignmentStrategy;
 import com.tangosol.net.partition.VersionedOwnership;
 import com.tangosol.persistence.AbstractPersistenceEnvironment;
+import com.tangosol.persistence.AbstractSnapshotArchiver;
 import com.tangosol.persistence.CachePersistenceHelper;
 import com.tangosol.persistence.GUIDHelper;
 import com.tangosol.persistence.PersistenceManagerMBean;
@@ -776,7 +777,7 @@ public abstract class PartitionedService
     /**
      * This is an auto-generated method that returns the global [design time]
     * parent component.
-    * 
+    *
     * Note: the class generator will ignore any custom implementation for this
     * behavior.
      */
@@ -4801,10 +4802,17 @@ public abstract class PartitionedService
                 {
                 if (isBackupPersistence())
                     {
-                    // delete backup store
-                    ctrl.deleteBackupPersistentStore();
+                    if (shouldRetainBackupPersistentStore(iPartition))
+                        {
+                        // durable backup stores are retained for services whose backup maps persist directly
+                        }
+                    else
+                        {
+                        // delete backup store
+                        ctrl.deleteBackupPersistentStore();
+                        }
                     }
-        
+
                 // backup to primary
                 saveQuorum(iPartition);
         
@@ -5723,7 +5731,7 @@ public abstract class PartitionedService
                               Arrays.binarySearch(aBackupStoreInfo, storeInfo) < 0)))
                             {
                             PartitionedService.PartitionControl ctrlPart = getPartitionControl(iPart);
-        
+
                             // exclude the GUIDs for currently active stores
                             // also, exclude global partitions when from backup
                             PersistentStore store = ctrlPart == null ? null : ctrlPart.getPersistentStore();
@@ -5767,7 +5775,7 @@ public abstract class PartitionedService
                             {
                             storeGlobal = quorumMgr.open(sGUID, /*storeFrom*/ null);
         
-                            com.tangosol.persistence.CachePersistenceHelper.validate(storeGlobal, this);
+                            com.tangosol.persistence.CachePersistenceHelper.validateForActiveRecovery(storeGlobal, this);
         
                             binQuorum = com.tangosol.persistence.CachePersistenceHelper.readQuorumRaw(storeGlobal);
                             }
@@ -6904,6 +6912,9 @@ public abstract class PartitionedService
         String[]                asGUID          = (String[]) listGUID.toArray(new String[cGUID]);
         PartitionedService.PersistenceControl  ctrl            = getPersistenceControl();
         boolean                 fSnapshot       = ctrl.getActiveManager() != mgrRecover;
+        boolean                 fSparseSnapshot = fSnapshot && msgRequest.getSnapshotToRecover() != null &&
+                com.tangosol.persistence.CachePersistenceHelper.isLocalSnapshotSparse(
+                        ctrl.getPersistenceEnvironment(), msgRequest.getSnapshotToRecover());
 
         if (mgrRecover != null)
             {
@@ -6967,10 +6978,15 @@ public abstract class PartitionedService
 
                 try
                     {
+                    PersistentStore storeFrom = fSnapshot
+                            ? ctrl.openSnapshotStoreForRead(mgrRecover, sGUID, fSparseSnapshot)
+                            : ctrl.openStoreForRead(fBackup ? backupMgr : mgrRecover, sGUID);
+
                     mapStoresFrom.put(Integer.valueOf(iPart),
                                        new Object[] {
-                                          ctrl.openStoreForRead(fBackup ? backupMgr : mgrRecover, sGUID),
-                                          Boolean.valueOf(fBackup)});
+                                          storeFrom,
+                                          Boolean.valueOf(fBackup),
+                                          Boolean.valueOf(fSparseSnapshot)});
 
                     if ((i & 0xF) == 0xF)
                         {
@@ -6986,7 +7002,7 @@ public abstract class PartitionedService
                 }
             }
         
-        Map mapStoresTo = openStores(mgrRecover, mapStoresFrom, partsFail, partsEventsFail);
+        Map mapStoresTo = openStores(mgrRecover, mapStoresFrom, partsFail, partsEventsFail, fSparseSnapshot);
         
         // the poll will be responded to when the all recovery job completes; see #onFinalizeRecoverPrimary
         recoverPartitions(job, mapStoresFrom, mapStoresTo, partsFail, partsEventsFail);
@@ -7849,7 +7865,7 @@ public abstract class PartitionedService
                     {
                     PersistentStore store = mgr.open(sGUID, /*storeFrom*/ null);
         
-                    com.tangosol.persistence.CachePersistenceHelper.validate(store, this);
+                    com.tangosol.persistence.CachePersistenceHelper.validateForActiveRecovery(store, this);
         
                     return store;
                     }
@@ -7875,7 +7891,7 @@ public abstract class PartitionedService
     * @param mapStores       the map of PersistentStores, keyed by partition-id
     * @param partsFail           the set of partitions with invalid stores
      */
-    public java.util.Map openStores(com.oracle.coherence.persistence.PersistenceManager mgrRecover, java.util.Map mapStores, com.tangosol.net.partition.PartitionSet partsFail, com.tangosol.net.partition.PartitionSet partsEventsFail)
+    public java.util.Map openStores(com.oracle.coherence.persistence.PersistenceManager mgrRecover, java.util.Map mapStores, com.tangosol.net.partition.PartitionSet partsFail, com.tangosol.net.partition.PartitionSet partsEventsFail, boolean fSparseSnapshot)
         {
         // import com.oracle.coherence.persistence.PersistenceException;
         // import com.oracle.coherence.persistence.PersistentStore;
@@ -7924,9 +7940,20 @@ public abstract class PartitionedService
                         {
                         storeTo = ctrlPart.ensureOpenPersistentStore(storeFrom, false);
 
-                        com.tangosol.persistence.CachePersistenceHelper.validate(storeTo, this);
+                        if (fSnapshot)
+                            {
+                            com.tangosol.persistence.CachePersistenceHelper.validateForSnapshotRecovery(
+                                    storeTo, this, fSparseSnapshot);
 
-                        com.tangosol.persistence.CachePersistenceHelper.unseal(storeTo);
+                            com.tangosol.persistence.CachePersistenceHelper.unsealForSnapshotRecovery(
+                                    storeTo, fSparseSnapshot);
+                            }
+                        else
+                            {
+                            com.tangosol.persistence.CachePersistenceHelper.validateForActiveRecovery(storeTo, this);
+
+                            com.tangosol.persistence.CachePersistenceHelper.unsealForActiveRecovery(storeTo);
+                            }
                         }
                     catch (PersistenceException e)
                         {
@@ -7962,7 +7989,7 @@ public abstract class PartitionedService
                                 }
                             else
                                 {
-                                com.tangosol.persistence.CachePersistenceHelper.validate(storeEvents, this);
+                                com.tangosol.persistence.CachePersistenceHelper.validateForActiveRecovery(storeEvents, this);
                                 }
                             }
                         catch (PersistenceException e)
@@ -8354,7 +8381,7 @@ public abstract class PartitionedService
      * Recover the specified partition from the specified store (which is opened
     * for reading).
     * This method may only be called if a persistence manager is configured.
-    * 
+    *
     * @param iPartition        the partition being recovered
     * @param storeFrom     the PersistentStore being recovered from
     * @param storeTo          the active PersistentStore to write recovered
@@ -8366,6 +8393,26 @@ public abstract class PartitionedService
      */
     public boolean recoverPartition(int iPartition, com.oracle.coherence.persistence.PersistentStore storeFrom, com.oracle.coherence.persistence.PersistentStore storeTo, java.util.List listRequests)
         {
+        return recoverPartition(iPartition, storeFrom, storeTo, listRequests, false);
+        }
+
+    /**
+     * Recover the specified partition from the specified store (which is opened
+    * for reading).
+    * This method may only be called if a persistence manager is configured.
+    *
+    * @param iPartition        the partition being recovered
+    * @param storeFrom     the PersistentStore being recovered from
+    * @param storeTo          the active PersistentStore to write recovered
+    * contents into, or null if no active persistence is configured
+    * @param listRequests  a list of requests that will be posted to the
+    * service after recovery is complete
+    * @param fSparseSnapshot true iff the source is from a sparse snapshot
+    *
+    * @return true iff the partition was successfully recovered
+     */
+    public boolean recoverPartition(int iPartition, com.oracle.coherence.persistence.PersistentStore storeFrom, com.oracle.coherence.persistence.PersistentStore storeTo, java.util.List listRequests, boolean fSparseSnapshot)
+        {
         // import com.oracle.coherence.persistence.PersistentStore as com.oracle.coherence.persistence.PersistentStore;
         // import com.tangosol.persistence.CachePersistenceHelper as com.tangosol.persistence.CachePersistenceHelper;
         // import com.tangosol.util.Binary;
@@ -8375,7 +8422,7 @@ public abstract class PartitionedService
 
         if (com.tangosol.persistence.CachePersistenceHelper.isGlobalPartitioningSchemePID(iPartition))
             {
-            Binary binQuorum = com.tangosol.persistence.CachePersistenceHelper.readQuorumRaw(storeFrom);
+            Binary binQuorum     = com.tangosol.persistence.CachePersistenceHelper.readQuorumRaw(storeFrom);
             if (binQuorum != null)
                 {
                 // copy the quorum info in case this node fails before restore completes
@@ -8399,7 +8446,7 @@ public abstract class PartitionedService
             {
             com.tangosol.persistence.CachePersistenceHelper.seal(storeEvents, this, /*oToken*/ null);
             }
-        
+
         com.tangosol.persistence.CachePersistenceHelper.seal(storeTo, this, /*oToken*/ null);
 
         ctrl.setRecovered(true);
@@ -8434,7 +8481,7 @@ public abstract class PartitionedService
         PartitionSet         partsRecovered = instantiatePartitionSet(false);
         PersistenceManager   mgrRecover     = info.getManager();
         PersistenceManager   mgrBackup      = getPersistenceControl().getBackupManager();
-        
+
         if (!mapStoresTo.isEmpty())
             {
             for (Iterator iter = mapStoresTo.entrySet().iterator();
@@ -8443,9 +8490,12 @@ public abstract class PartitionedService
                 java.util.Map.Entry           entry       = (java.util.Map.Entry) iter.next();
                 Integer         IPartition  = ((Integer) entry.getKey());
                 int             nPartition  = IPartition.intValue();
-                PersistentStore storeFrom   = (PersistentStore) entry.getValue();
-                String          sGUID       = ((PersistentStore) ((Object[]) mapStoresFrom.get(IPartition))[0]).getId();
-                boolean         fFromBackup = ((Boolean) ((Object[]) mapStoresFrom.get(IPartition))[1]).booleanValue();
+                Object[]        aoStores    = (Object[]) mapStoresFrom.get(IPartition);
+                PersistentStore storeFrom   = (PersistentStore) aoStores[0];
+                PersistentStore storeToOpen = (PersistentStore) entry.getValue();
+                String          sGUID       = storeFrom.getId();
+                boolean         fFromBackup = ((Boolean) aoStores[1]).booleanValue();
+                boolean         fSparseSnapshot = aoStores.length > 2 && ((Boolean) aoStores[2]).booleanValue();
 
                 _assert(getPartitionControl(nPartition).isLocked(), "Partition must be locked");
 
@@ -8454,9 +8504,11 @@ public abstract class PartitionedService
                     // Note: recoverPartition can throw PersistenceException only due to
                     //       a failure on the recovering store
 
-                    PersistentStore storeTo = isActivePersistence() ? storeFrom : NullImplementation.getPersistentStore();
+                    PersistentStore storeTo = isActivePersistence() ? storeToOpen : NullImplementation.getPersistentStore();
 
-                    if (recoverPartition(nPartition, storeFrom, storeTo, listRequests))
+                    boolean fRecovered = recoverPartition(nPartition, storeToOpen, storeTo, listRequests, fSparseSnapshot);
+
+                    if (fRecovered)
                         {
                         // finished with the recovery; close or delete the old store
                         if (isSnapshotManager(mgrRecover))
@@ -8474,7 +8526,7 @@ public abstract class PartitionedService
                                 mgrRecover.delete(sGUID, false);
                                 }
                             }
-        
+
                         // add the now-recovered partition to the partition-config update
                         partsRecovered.add(nPartition);
         
@@ -8541,6 +8593,11 @@ public abstract class PartitionedService
         
                 handlePartitionTrace(partsAssign,
                     PartitionedService.PartitionControl.getPartitionEventDescription(PartitionedService.PartitionControl.PARTITION_EVENT_ASSIGNED));
+                }
+
+            if (request.getGUIDs().length > 0)
+                {
+                getPersistenceControl().completeLocalRecovery(info);
                 }
         
             PartitionedService.Continuations continuations = getContinuations();
@@ -8614,13 +8671,34 @@ public abstract class PartitionedService
                 {
                 if (isBackupPersistence())
                     {
-                    // backup released: delete the persistent store
-                    getPartitionControl(iPartition).deleteBackupPersistentStore();
+                    if (shouldRetainBackupPersistentStore(iPartition))
+                        {
+                        // durable backup stores are retained for services whose backup maps persist directly
+                        }
+                    else
+                        {
+                        // backup released: delete the persistent store
+                        getPartitionControl(iPartition).deleteBackupPersistentStore();
+                        }
                     }
                 }
             }
         }
-    
+
+    /**
+     * Return {@code true} if this service should retain the backup persistent
+     * store for the specified partition when backup ownership is released or
+     * promoted.
+     *
+     * @param iPartition  the partition identifier
+     *
+     * @return {@code true} if the backup store should be retained
+     */
+    protected boolean shouldRetainBackupPersistentStore(int iPartition)
+        {
+        return false;
+        }
+
     protected void releasePartitionControl(int nPartition)
         {
         // import com.tangosol.net.Guardian$GuardContext as com.tangosol.net.Guardian.GuardContext;
@@ -10505,15 +10583,16 @@ public abstract class PartitionedService
                         arch = ctrl.getSnapshotArchiver();
                         }
         
+                    String sEnvThis   = env == null ? "none" : env.getClass().getName();
+                    String sEnvSenior = xmlConfig.getSafeAttribute("persistence-environment").getString("none");
+
                     if (!verifyFeature("PersistenceActiveFailureMode",
                             !isActivePersistence() || ctrl == null
                                 ? "none"
                                 : ctrl.getActiveFailureMode() == PersistenceDependencies.FAILURE_STOP_SERVICE
                                     ? "stop-service" : "stop-persistence",
                             xmlConfig.getSafeAttribute("persistence-active-failure-mode").getString("none")) ||
-                        !verifyFeature("PersistenceEnvironment",
-                            env == null ? "none" : env.getClass().getName(),
-                            xmlConfig.getSafeAttribute("persistence-environment").getString("none")) ||
+                        !verifyPersistenceEnvironmentCompatibility(sEnvThis, sEnvSenior) ||
                         !verifyFeature("PersistenceMode",
                             isActivePersistence() ? "active" : "on-demand",
                             xmlConfig.getSafeAttribute("persistence-mode").getString("none")) ||
@@ -10538,6 +10617,47 @@ public abstract class PartitionedService
             }
         
         return fValid;
+        }
+
+    /**
+     * Verify that the local and senior persistence environments are compatible.
+     * BDB and journal environments are intentionally allowed to coexist during
+     * rolling migration because persistence format is a local implementation
+     * detail as long as the active persistence contract remains the same.
+     *
+     * @param sEnvThis    the local persistence environment implementation
+     * @param sEnvSenior  the senior member persistence environment implementation
+     *
+     * @return {@code true} if the environments are compatible
+     */
+    protected boolean verifyPersistenceEnvironmentCompatibility(String sEnvThis, String sEnvSenior)
+        {
+        if (sEnvThis.equals(sEnvSenior))
+            {
+            return true;
+            }
+
+        if (isRollingMigrationPersistenceEnvironment(sEnvThis)
+                && isRollingMigrationPersistenceEnvironment(sEnvSenior))
+            {
+            return true;
+            }
+
+        return verifyFeature("PersistenceEnvironment", sEnvThis, sEnvSenior);
+        }
+
+    /**
+     * Return {@code true} if the specified environment participates in
+     * supported rolling persistence migration.
+     *
+     * @param sEnvironment  the persistence environment implementation name
+     *
+     * @return {@code true} if the environment supports rolling migration
+     */
+    protected boolean isRollingMigrationPersistenceEnvironment(String sEnvironment)
+        {
+        return "com.tangosol.persistence.bdb.BerkeleyDBEnvironment".equals(sEnvironment)
+                || "com.tangosol.persistence.journal.JournalPersistenceEnvironment".equals(sEnvironment);
         }
     
     /**
@@ -24089,7 +24209,14 @@ public abstract class PartitionedService
          * recovered.
          */
         private com.tangosol.net.partition.PartitionSet __m_PartsRecovered;
-        
+
+        /**
+         * Property RecoveryStartNanos
+         *
+         * Start time for request-level recovery timing instrumentation.
+         */
+        private transient long __m_RecoveryStartNanos;
+
         /**
          * Property RecoverJobs
          *
@@ -24313,7 +24440,16 @@ public abstract class PartitionedService
             {
             return __m_PartsRecovered;
             }
-        
+
+        /**
+         * Getter for property RecoveryStartNanos.<p>
+        * Start time for request-level recovery timing instrumentation.
+         */
+        public long getRecoveryStartNanos()
+            {
+            return __m_RecoveryStartNanos;
+            }
+
         // Accessor for the property "PersistenceManager"
         /**
          * Getter for property PersistenceManager.<p>
@@ -24485,8 +24621,27 @@ public abstract class PartitionedService
                 job.setRecoverInfo(info);
                 laJob.set(0, job);
                 }
-            
+
             setRecoverJobs(new AtomicInteger(laJob.getSize()));
+            setRecoveryStartNanos(System.nanoTime());
+            if (cGUIDs > 0)
+                {
+                service.getPersistenceControl().beginLocalRecovery(
+                        getSnapshotToRecover() == null
+                                ? "active"
+                                : "snapshot:" + getSnapshotToRecover());
+                }
+
+            if (isRecoveryTimingEnabled() && cGUIDs > 0)
+                {
+                _trace("Persistence recovery request timings: phase=start"
+                        + ", source=" + (getSnapshotToRecover() == null ? "active" : "snapshot:" + getSnapshotToRecover())
+                        + ", parts-recover=" + getPartsRecover().cardinality()
+                        + ", parts-assign=" + getPartsAssign().cardinality()
+                        + ", guids=" + cGUIDs
+                        + ", jobs=" + laJob.getSize()
+                        + ", metrics-enabled=true", 3);
+                }
             
             com.tangosol.coherence.component.util.DaemonPool pool = service.getDaemonPool(); 
             for (Iterator iter = laJob.iterator(); iter.hasNext();)
@@ -24585,7 +24740,16 @@ public abstract class PartitionedService
             {
             __m_PartsRecovered = setRecovered;
             }
-        
+
+        /**
+         * Setter for property RecoveryStartNanos.<p>
+        * Start time for request-level recovery timing instrumentation.
+         */
+        public void setRecoveryStartNanos(long cNanos)
+            {
+            __m_RecoveryStartNanos = cNanos;
+            }
+
         // Accessor for the property "RecoverJobs"
         /**
          * Setter for property RecoverJobs.<p>
@@ -24605,6 +24769,28 @@ public abstract class PartitionedService
         public void setSnapshotToRecover(String sSnapshot)
             {
             __m_SnapshotToRecover = sSnapshot;
+            }
+
+        /**
+         * Return {@code true} if persistence recovery timing logs are enabled.
+         *
+         * @return {@code true} if persistence recovery timing logs are enabled
+         */
+        public static boolean isRecoveryTimingEnabled()
+            {
+            return RECOVERY_TIMING_ENABLED;
+            }
+
+        /**
+         * Format nanoseconds as milliseconds with three decimals.
+         *
+         * @param cNanos  the duration in nanoseconds
+         *
+         * @return formatted milliseconds
+         */
+        private static String formatMillis(long cNanos)
+            {
+            return String.format("%.3f", cNanos / 1_000_000.0d);
             }
         
         // Declared at the super level
@@ -24645,6 +24831,12 @@ public abstract class PartitionedService
                     }
                 }
             }
+
+        /**
+         * Set to {@code true} to emit request-level persistence recovery timing logs.
+         */
+        private static final boolean RECOVERY_TIMING_ENABLED =
+                Boolean.getBoolean("coherence.persistence.recovery.timing");
 
         // ---- class: com.tangosol.coherence.component.util.daemon.queueProcessor.service.grid.PartitionedService$PartitionRecoverRequest$Poll
         
@@ -24788,7 +24980,20 @@ public abstract class PartitionedService
                         // signal the persistence controller that recovery has completed
                         service.getPersistenceControl().getSnapshotController()
                                 .onRecoveryCompleted(sSnapshot, service.collectOrphanPartitions(), msgRequest.getEventsPartsFailed());
-
+                        if (PartitionedService.PartitionRecoverRequest.isRecoveryTimingEnabled())
+                            {
+                            long cNanos = msgRequest.getRecoveryStartNanos();
+                            _trace("Persistence recovery request timings: phase=complete"
+                                    + ", source=" + (sSnapshot == null ? "active" : "snapshot:" + sSnapshot)
+                                    + ", elapsed-ms=" + PartitionedService.PartitionRecoverRequest.formatMillis(
+                                            cNanos == 0L ? 0L : System.nanoTime() - cNanos)
+                                    + ", parts-recovered=" + msgRequest.getPartsRecovered().cardinality()
+                                    + ", parts-failed=" + service.collectOrphanPartitions().cardinality()
+                                    + ", events-failed="
+                                            + (msgRequest.getEventsPartsFailed() == null
+                                            ? 0
+                                            : msgRequest.getEventsPartsFailed().cardinality()), 3);
+                            }
                         _trace("Persistence recovery is complete.", 3);
                         }
                     }
@@ -26200,6 +26405,56 @@ public abstract class PartitionedService
          * despite the quorum's decision.
          */
         private boolean __m_ForceRecovery;
+
+        /**
+         * Property LastRecoveryDurationMillis
+         *
+         * The duration in millis of the last local persistence recovery
+         * performed by this member.
+         *
+         * @volatile
+         */
+        private volatile long __m_LastRecoveryDurationMillis;
+
+        /**
+         * Property LastRecoveryFailedPartitions
+         *
+         * The number of partitions that failed during the last local
+         * persistence recovery performed by this member.
+         *
+         * @volatile
+         */
+        private volatile int __m_LastRecoveryFailedPartitions;
+
+        /**
+         * Property LastRecoveryRecoveredPartitions
+         *
+         * The number of partitions successfully recovered during the last
+         * local persistence recovery performed by this member.
+         *
+         * @volatile
+         */
+        private volatile int __m_LastRecoveryRecoveredPartitions;
+
+        /**
+         * Property LastRecoverySource
+         *
+         * The source used for the last local persistence recovery performed
+         * by this member. For example, "active" or "snapshot:<name>".
+         *
+         * @volatile
+         */
+        private volatile String __m_LastRecoverySource;
+
+        /**
+         * Property LastRecoveryStartMillis
+         *
+         * The start time in millis of the last local persistence recovery
+         * performed by this member.
+         *
+         * @volatile
+         */
+        private volatile long __m_LastRecoveryStartMillis;
         
         /**
          * Property PartitionVersionExclusionList
@@ -26474,7 +26729,47 @@ public abstract class PartitionedService
             
             service.send(msgResponse);
             }
-        
+
+        /**
+         * Record the start of a local persistence recovery.
+         *
+         * @param sSource  the recovery source descriptor
+         */
+        public void beginLocalRecovery(String sSource)
+            {
+            setLastRecoverySource(sSource);
+            setLastRecoveryStartMillis(Base.getSafeTimeMillis());
+            setLastRecoveryDurationMillis(0L);
+            setLastRecoveryRecoveredPartitions(0);
+            setLastRecoveryFailedPartitions(0);
+            }
+
+        /**
+         * Record completion details for the current local persistence
+         * recovery.
+         *
+         * @param info  the recovery information
+         */
+        public void completeLocalRecovery(PartitionRecoverInfo info)
+            {
+            long ldtStart = getLastRecoveryStartMillis();
+            PartitionedService.PartitionRecoverRequest request = (PartitionedService.PartitionRecoverRequest) info.getRequest();
+            com.tangosol.net.partition.PartitionSet    partsFailed = info.getFailedPartitions();
+            com.tangosol.net.partition.PartitionSet    partsAssign = request == null ? null : request.getPartsAssign();
+
+            if (partsAssign != null && !partsAssign.isEmpty() && partsFailed != null && !partsFailed.isEmpty())
+                {
+                partsFailed = new com.tangosol.net.partition.PartitionSet(partsFailed);
+                partsFailed.remove(partsAssign);
+                }
+
+            setLastRecoveryRecoveredPartitions(info.getRecoveredPartitions().cardinality());
+            setLastRecoveryFailedPartitions(partsFailed == null ? 0 : partsFailed.cardinality());
+            setLastRecoveryDurationMillis(ldtStart == 0L
+                    ? 0L
+                    : Math.max(0L, Base.getSafeTimeMillis() - ldtStart));
+            }
+
         /**
          * Create a persistent snapshot according to the specified
         * SnapshotRequest.
@@ -26792,6 +27087,71 @@ public abstract class PartitionedService
         public boolean isForceRecovery()
             {
             return __m_ForceRecovery;
+            }
+
+        // Accessor for the property "LastRecoveryDurationMillis"
+        /**
+         * Getter for property LastRecoveryDurationMillis.<p>
+        * The duration in millis of the last local persistence recovery
+        * performed by this member.
+        * 
+        * @volatile
+         */
+        public long getLastRecoveryDurationMillis()
+            {
+            return __m_LastRecoveryDurationMillis;
+            }
+
+        // Accessor for the property "LastRecoveryFailedPartitions"
+        /**
+         * Getter for property LastRecoveryFailedPartitions.<p>
+        * The number of partitions that failed during the last local
+        * persistence recovery performed by this member.
+        * 
+        * @volatile
+         */
+        public int getLastRecoveryFailedPartitions()
+            {
+            return __m_LastRecoveryFailedPartitions;
+            }
+
+        // Accessor for the property "LastRecoveryRecoveredPartitions"
+        /**
+         * Getter for property LastRecoveryRecoveredPartitions.<p>
+        * The number of partitions successfully recovered during the last local
+        * persistence recovery performed by this member.
+        * 
+        * @volatile
+         */
+        public int getLastRecoveryRecoveredPartitions()
+            {
+            return __m_LastRecoveryRecoveredPartitions;
+            }
+
+        // Accessor for the property "LastRecoverySource"
+        /**
+         * Getter for property LastRecoverySource.<p>
+        * The source used for the last local persistence recovery performed by
+        * this member.
+        * 
+        * @volatile
+         */
+        public String getLastRecoverySource()
+            {
+            return __m_LastRecoverySource;
+            }
+
+        // Accessor for the property "LastRecoveryStartMillis"
+        /**
+         * Getter for property LastRecoveryStartMillis.<p>
+        * The start time in millis of the last local persistence recovery
+        * performed by this member.
+        * 
+        * @volatile
+         */
+        public long getLastRecoveryStartMillis()
+            {
+            return __m_LastRecoveryStartMillis;
             }
         
         // Accessor for the property "PersistEvents"
@@ -27169,7 +27529,52 @@ public abstract class PartitionedService
                     {
                     PersistentStore store = mgr.open(sGUID, /*storeFrom*/ null);
 
-                    com.tangosol.persistence.CachePersistenceHelper.validate(store, service);
+                    com.tangosol.persistence.CachePersistenceHelper.validateForActiveRecovery(store, service);
+
+                    return store;
+                    }
+                catch (ConcurrentAccessException e)
+                    {
+                    if (cRetry > 100)
+                        {
+                        throw new FatalAccessException(e);
+                        }
+                    service.sleep(10L);
+                    }
+                }
+            }
+
+        /**
+         * Open a sparse snapshot store for reading during snapshot recovery.
+         *
+         * @param mgr              the persistence manager to use to open the store
+         * @param sGUID            the store GUID
+         * @param fSparseSnapshot  true iff the snapshot root has been identified as sparse
+         *
+         * @return the opened store
+         */
+        public com.oracle.coherence.persistence.PersistentStore openSnapshotStoreForRead(com.oracle.coherence.persistence.PersistenceManager mgr, String sGUID, boolean fSparseSnapshot)
+            {
+            // import com.oracle.coherence.persistence.ConcurrentAccessException;
+            // import com.oracle.coherence.persistence.FatalAccessException;
+            // import com.oracle.coherence.persistence.PersistentStore;
+            // import com.tangosol.persistence.CachePersistenceHelper as com.tangosol.persistence.CachePersistenceHelper;
+
+            PartitionedService service = (PartitionedService) get_Module();
+
+            if (mgr.isEmpty(sGUID))
+                {
+                return mgr.createStore(sGUID);
+                }
+
+            for (int cRetry = 0; true; cRetry++)
+                {
+                try
+                    {
+                    PersistentStore store = mgr.open(sGUID, /*storeFrom*/ null);
+
+                    com.tangosol.persistence.CachePersistenceHelper.validateForSnapshotRecovery(
+                            store, service, fSparseSnapshot);
 
                     return store;
                     }
@@ -27214,7 +27619,7 @@ public abstract class PartitionedService
                         {
                         PersistentStore store = mgr.open(sGUID, /*storeFrom*/ null);
             
-                        com.tangosol.persistence.CachePersistenceHelper.validate(store, service);
+                        com.tangosol.persistence.CachePersistenceHelper.validateForActiveRecovery(store, service);
             
                         return store;
                         }
@@ -27448,6 +27853,71 @@ public abstract class PartitionedService
         public void setForceRecovery(boolean fRecovery)
             {
             __m_ForceRecovery = fRecovery;
+            }
+
+        // Accessor for the property "LastRecoveryDurationMillis"
+        /**
+         * Setter for property LastRecoveryDurationMillis.<p>
+        * The duration in millis of the last local persistence recovery
+        * performed by this member.
+        * 
+        * @volatile
+         */
+        protected void setLastRecoveryDurationMillis(long cMillis)
+            {
+            __m_LastRecoveryDurationMillis = cMillis;
+            }
+
+        // Accessor for the property "LastRecoveryFailedPartitions"
+        /**
+         * Setter for property LastRecoveryFailedPartitions.<p>
+        * The number of partitions that failed during the last local
+        * persistence recovery performed by this member.
+        * 
+        * @volatile
+         */
+        protected void setLastRecoveryFailedPartitions(int cPartitions)
+            {
+            __m_LastRecoveryFailedPartitions = cPartitions;
+            }
+
+        // Accessor for the property "LastRecoveryRecoveredPartitions"
+        /**
+         * Setter for property LastRecoveryRecoveredPartitions.<p>
+        * The number of partitions successfully recovered during the last local
+        * persistence recovery performed by this member.
+        * 
+        * @volatile
+         */
+        protected void setLastRecoveryRecoveredPartitions(int cPartitions)
+            {
+            __m_LastRecoveryRecoveredPartitions = cPartitions;
+            }
+
+        // Accessor for the property "LastRecoverySource"
+        /**
+         * Setter for property LastRecoverySource.<p>
+        * The source used for the last local persistence recovery performed by
+        * this member.
+        * 
+        * @volatile
+         */
+        protected void setLastRecoverySource(String sSource)
+            {
+            __m_LastRecoverySource = sSource;
+            }
+
+        // Accessor for the property "LastRecoveryStartMillis"
+        /**
+         * Setter for property LastRecoveryStartMillis.<p>
+        * The start time in millis of the last local persistence recovery
+        * performed by this member.
+        * 
+        * @volatile
+         */
+        protected void setLastRecoveryStartMillis(long ldtStart)
+            {
+            __m_LastRecoveryStartMillis = ldtStart;
             }
         
         // Accessor for the property "PartitionVersionExclusionList"
@@ -28615,9 +29085,13 @@ public abstract class PartitionedService
                 // get the list of stores that each member sees
                 Map     mapStores = getSnapshotStores(sSnapshot);
                 PartitionedService service   = getService(); 
+                boolean fSparseSnapshot = CachePersistenceHelper.isLocalSnapshotSparse(
+                        getPersistenceControl().getPersistenceEnvironment(), sSnapshot);
                 
                 // allocate the stores evenly across all members; Map<Integer, PersistentStoreInfo[]>
-                mapStores = GUIDHelper.assignStores(GUIDHelper.getMapGuids(mapStores), service.getPartitionCount());
+                Map mapGUIDs = GUIDHelper.getMapGuids(mapStores);
+                mapStores = GUIDHelper.assignStores(mapGUIDs,
+                        fSparseSnapshot ? getDistinctStoreCount(mapGUIDs) : service.getPartitionCount());
                 
                 // update the attributes
                 setSnapshotName(sSnapshot);
@@ -28902,6 +29376,33 @@ public abstract class PartitionedService
                     }
                 
                 return null;
+                }
+
+            /**
+             * Return the number of distinct stores represented by the provided
+            * constraints map.
+             *
+             * @param mapStores  a map of member id to store arrays
+             *
+             * @return the number of distinct stores represented by the map
+             */
+            protected int getDistinctStoreCount(Map mapStores)
+                {
+                Set setDistinctStores = new HashSet();
+
+                for (Iterator iter = mapStores.values().iterator(); iter.hasNext();)
+                    {
+                    Object[] aoStores = (Object[]) iter.next();
+                    for (int i = 0; i < aoStores.length; i++)
+                        {
+                        Object oStore = aoStores[i];
+                        setDistinctStores.add(oStore instanceof PersistentStoreInfo
+                                ? ((PersistentStoreInfo) oStore).getId()
+                                : oStore);
+                        }
+                    }
+
+                return setDistinctStores.size();
                 }
             
             // Accessor for the property "MBeanName"
@@ -29559,14 +30060,19 @@ public abstract class PartitionedService
                     throw new IllegalArgumentException("A snapshot named \"" + sSnapshot + "\" does not exist");
                     }
                 
-                // validate that the number of stores in the snapshot is the same as the service
-                // count. This could indicate that not all machines are present - COH-13270
-                
-                // poll to ownership memberset to ensure all partitions are accessible
                 PartitionedService      service = getService();
                 int          cParts  = service.getPartitionCount();
+                boolean      fSparseSnapshot = CachePersistenceHelper.isLocalSnapshotSparse(
+                        getPersistenceControl().getPersistenceEnvironment(), sSnapshot);
+
+                // validate that the number of stores in the snapshot is the same as the service
+                // count. This could indicate that not all machines are present - COH-13270.
+                // For sparse journal snapshots, missing partitions are interpreted as empty and
+                // will be materialized lazily when they next receive data.
+                
+                // poll to ownership memberset to ensure all partitions are accessible
                 PartitionSet parts   = GUIDHelper.getPartitions(getSnapshotStores(sSnapshot), cParts);
-                if (parts.cardinality() != cParts)
+                if (!fSparseSnapshot && parts.cardinality() != cParts)
                     {
                     throw new IllegalStateException("Missing the following partitions to recover snapshot '" +
                         sSnapshot + "': " + parts.invert());
@@ -29789,12 +30295,14 @@ public abstract class PartitionedService
                 SnapshotArchiver archiver = getPersistenceControl().getSnapshotArchiver();
                 PartitionedService          service  = getService();
                 int              cParts   = service.getPartitionCount();
+                boolean          fSparseSnapshot = archiver instanceof AbstractSnapshotArchiver
+                        && ((AbstractSnapshotArchiver) archiver).isSnapshotSparse(sSnapshot);
                 
                 // Get the snapshot details which will give us the entire list of stores
                 Snapshot snapshot = archiver.get(sSnapshot);
                 String[] asStores = snapshot.listStores();
                 
-                if (cParts != asStores.length)
+                if (!fSparseSnapshot && cParts != asStores.length)
                     {
                     throw new IllegalStateException("The number of archived stores for snapshot " +
                         sSnapshot + " is " + asStores.length + " which does not " +
@@ -29809,29 +30317,51 @@ public abstract class PartitionedService
                 ActualMemberSet setTo      = new ActualMemberSet();
                 Map             mapStores  = new HashMap();
                 
-                for (int iPart = 0; iPart < cParts; iPart++)
+                if (fSparseSnapshot)
                     {
-                    // retrieve the owner of the primary partition
-                    int     nMember   = service.getPartitionConfig(iPart).getPrimaryOwner();
-                    Integer NMember   = Integer.valueOf(nMember);
-                    Set     setStores = (Set) mapStores.get(NMember);
-                    if (setStores == null)
+                    for (int iStore = 0; iStore < asStores.length; iStore++)
                         {
-                        mapStores.put(NMember, setStores = new HashSet());
-                        setTo.add(setMembers.getMember(nMember));
-                        }
+                        String  sGUID     = asStores[iStore];
+                        int     iPart     = GUIDHelper.getPartition(sGUID);
+                        int     nMember   = service.getPartitionConfig(iPart).getPrimaryOwner();
+                        Integer NMember   = Integer.valueOf(nMember);
+                        Set     setStores = (Set) mapStores.get(NMember);
                 
-                    // retrieve the GUID for the current partition
-                    String sGUID = getGUIDFromPartition(iPart, asStores);
-                    if (sGUID == null)
+                        if (setStores == null)
+                            {
+                            mapStores.put(NMember, setStores = new HashSet());
+                            setTo.add(setMembers.getMember(nMember));
+                            }
+
+                        setStores.add(sGUID);
+                        }
+                    }
+                else
+                    {
+                    for (int iPart = 0; iPart < cParts; iPart++)
                         {
-                        // if we can't find a matching GUID then this means the partition
-                        // count must be different so raise an error
-                        throw new IllegalStateException("Unable to find a GUID for partition " +
-                            iPart + " in the list of stores for snapshot " + sSnapshot + ". Unable to retrieve");
-                        }
+                        // retrieve the owner of the primary partition
+                        int     nMember   = service.getPartitionConfig(iPart).getPrimaryOwner();
+                        Integer NMember   = Integer.valueOf(nMember);
+                        Set     setStores = (Set) mapStores.get(NMember);
+                        if (setStores == null)
+                            {
+                            mapStores.put(NMember, setStores = new HashSet());
+                            setTo.add(setMembers.getMember(nMember));
+                            }
                 
-                    setStores.add(sGUID);
+                        // retrieve the GUID for the current partition
+                        String sGUID = getGUIDFromPartition(iPart, asStores);
+                        if (sGUID == null)
+                            {
+                            // if we can't find a matching GUID then this means the partition
+                            // count must be different so raise an error
+                            throw new IllegalStateException("Unable to find a GUID for partition " +
+                                iPart + " in the list of stores for snapshot " + sSnapshot + ". Unable to retrieve");
+                            }
+                
+                        setStores.add(sGUID);
+                        }
                     }
                 
                 // convert Map<Integer, Set<String>> to Map<Integer, String[]>

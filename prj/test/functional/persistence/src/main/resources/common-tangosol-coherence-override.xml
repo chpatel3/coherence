@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <!--
-  Copyright (c) 2000, 2022, Oracle and/or its affiliates.
+  Copyright (c) 2000, 2026, Oracle and/or its affiliates.
 
   Licensed under the Universal Permissive License v 1.0 as shown at
   https://oss.oracle.com/licenses/upl.
@@ -22,6 +22,15 @@
         <backup-directory system-property="test.persistence.backup.dir">target/store-bdb-backup</backup-directory>
         <snapshot-directory system-property="test.persistence.snapshot.dir">target/store-bdb-snapshot</snapshot-directory>
         <trash-directory system-property="test.persistence.trash.dir">target/store-bdb-trash</trash-directory>
+      </persistence-environment>
+      <persistence-environment id="simple-journal-environment">
+        <persistence-mode system-property="test.persistence.mode">active</persistence-mode>
+        <persistence-type>journal</persistence-type>
+        <active-directory system-property="test.persistence.active.dir">target/store-journal-active</active-directory>
+        <backup-directory system-property="test.persistence.backup.dir">target/store-journal-backup</backup-directory>
+        <snapshot-directory system-property="test.persistence.snapshot.dir">target/store-journal-snapshot</snapshot-directory>
+        <trash-directory system-property="test.persistence.trash.dir">target/store-journal-trash</trash-directory>
+        <migration-source-directory system-property="test.persistence.migration.dir"></migration-source-directory>
       </persistence-environment>
       <persistence-environment id="simple-custom-environment">
         <instance>

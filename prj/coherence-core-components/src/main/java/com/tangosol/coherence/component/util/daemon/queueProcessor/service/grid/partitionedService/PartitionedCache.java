@@ -205,7 +205,8 @@ import java.util.concurrent.atomic.AtomicReferenceArray;
 public class PartitionedCache
         extends    com.tangosol.coherence.component.util.daemon.queueProcessor.service.grid.PartitionedService
         implements com.tangosol.net.CacheService,
-                   com.tangosol.net.DistributedCacheService
+                   com.tangosol.net.DistributedCacheService,
+                   com.tangosol.internal.util.PartitionedCacheComponent
     {
     // ---- Fields declarations ----
     
@@ -843,7 +844,7 @@ public class PartitionedCache
     /**
      * This is an auto-generated method that returns the global [design time]
     * parent component.
-    * 
+    *
     * Note: the class generator will ignore any custom implementation for this
     * behavior.
      */
@@ -1621,7 +1622,7 @@ public class PartitionedCache
                         }
                     }
         
-                if (!fBlind && isBackupPersistence())
+                if (!fBlind && isBackupPersistence() && shouldPersistBackup(storage))
                     {
                     // actual persistence is done async
                     persistBackup(nPartition, lCacheId, binKey, binValue, fRemove);
@@ -1651,7 +1652,7 @@ public class PartitionedCache
         if (mapUpdate != null)
             {
             doBackupPutAll(mapBackup, mapUpdate);
-            if (isBackupPersistence())
+            if (isBackupPersistence() && shouldPersistBackup(storage))
                 {
                 persistBackup(lCacheId, mapUpdate);
                 }
@@ -1659,7 +1660,7 @@ public class PartitionedCache
         if (setRemove != null)
             {
             doBackupRemoveAll(mapBackup, setRemove);
-            if (isBackupPersistence())
+            if (isBackupPersistence() && shouldPersistBackup(storage))
                 {
                 persistBackup(lCacheId, setRemove);
                 }
@@ -2209,7 +2210,10 @@ public class PartitionedCache
      */
     public void ensureStorage(com.tangosol.util.LongArray laCaches)
         {
+        // import Component.Net.Member as com.tangosol.coherence.component.net.Member;
+        // import com.tangosol.run.xml.XmlElement;
         // import com.tangosol.util.LongArray$Iterator as com.tangosol.util.LongArray.Iterator;
+        // import java.util.Map;
         
         String[] asCacheNames = new String[laCaches.getSize()];
         long[]   alCacheIds   = new long[asCacheNames.length];
@@ -2235,6 +2239,41 @@ public class PartitionedCache
         
         if (i > 0)
             {
+            if (isServiceThread(true))
+                {
+                Map       mapConfig        = getServiceConfigMap();
+                com.tangosol.coherence.component.net.Member memberThis        = getThisMember();
+                com.tangosol.coherence.component.net.Member memberCoordinator = getServiceOldestMember();
+
+                for (int iCache = 0; iCache < i; ++iCache)
+                    {
+                    String sCacheName = asCacheNames[iCache];
+                    if (sCacheName == null || getStorage(sCacheName) != null)
+                        {
+                        continue;
+                        }
+
+                    long       lCacheId     = alCacheIds[iCache];
+                    XmlElement xmlCacheInfo = (XmlElement) mapConfig.get(sCacheName);
+                    if (xmlCacheInfo == null)
+                        {
+                        if (memberThis == memberCoordinator)
+                            {
+                            xmlCacheInfo = createCacheInfo(sCacheName, lCacheId);
+                            mapConfig.put(sCacheName, xmlCacheInfo);
+                            }
+                        }
+
+                    if (xmlCacheInfo != null)
+                        {
+                        lCacheId = xmlCacheInfo.getAttribute("id").getLong();
+                        }
+
+                    ensureStorageInternal(sCacheName, lCacheId, /*fInit*/ false);
+                    }
+                return;
+                }
+
             // poll the service thread to ensure the cache (possibly requiring a
             // poll to the senior member to create the cache-id)
             //
@@ -2756,10 +2795,66 @@ public class PartitionedCache
                 return sCacheName;
                 }
             }
-        
+
         return null;
         }
-    
+
+    // From interface: com.tangosol.internal.util.PartitionedCacheComponent
+    public long getCacheId(String sCacheName)
+        {
+        // import com.tangosol.run.xml.XmlElement;
+        // import java.util.Map;
+
+        Storage storage = getStorage(sCacheName);
+        if (storage != null)
+            {
+            return storage.getCacheId();
+            }
+
+        Map        mapConfig    = getServiceConfigMap();
+        XmlElement xmlCacheInfo = mapConfig == null ? null : (XmlElement) mapConfig.get(sCacheName);
+
+        return xmlCacheInfo == null ? 0L : xmlCacheInfo.getSafeAttribute("id").getLong();
+        }
+
+    // From interface: com.tangosol.internal.util.PartitionedCacheComponent
+    public com.oracle.coherence.persistence.PersistentStore getPersistentStore(int nPartition)
+        {
+        PartitionedCache.PartitionControl control = (PartitionedCache.PartitionControl) getPartitionControl(nPartition);
+        return control == null ? null : control.getPersistentStore();
+        }
+
+    // From interface: com.tangosol.internal.util.PartitionedCacheComponent
+    public com.oracle.coherence.persistence.PersistentStore ensureOpenPersistentStore(int nPartition)
+        {
+        PartitionedCache.PartitionControl control = (PartitionedCache.PartitionControl) getPartitionControl(nPartition);
+        return control == null ? null : control.ensureOpenPersistentStore();
+        }
+
+    // From interface: com.tangosol.internal.util.PartitionedCacheComponent
+    public com.oracle.coherence.persistence.PersistentStore getBackupPersistentStore(int nPartition)
+        {
+        if (!isBackupPersistence())
+            {
+            return null;
+            }
+
+        PartitionedCache.PartitionControl control = (PartitionedCache.PartitionControl) getPartitionControl(nPartition);
+        return control == null ? null : control.getPersistentBackupStore();
+        }
+
+    // From interface: com.tangosol.internal.util.PartitionedCacheComponent
+    public com.oracle.coherence.persistence.PersistentStore ensureOpenBackupPersistentStore(int nPartition)
+        {
+        if (!isBackupPersistence())
+            {
+            return null;
+            }
+
+        PartitionedCache.PartitionControl control = (PartitionedCache.PartitionControl) getPartitionControl(nPartition);
+        return control == null ? null : control.ensureOpenPersistentStore(null, false, true);
+        }
+
     // From interface: com.tangosol.net.CacheService
     // From interface: com.tangosol.net.DistributedCacheService
     public java.util.Enumeration getCacheNames()
@@ -3063,11 +3158,11 @@ public class PartitionedCache
      */
     public com.tangosol.util.LongArray getPersistentCacheIds(boolean fSnapshot)
         {
-        // import com.tangosol.net.BackingMapManager;
         // import com.tangosol.util.LongArray;
         // import com.tangosol.util.SparseArray;
+        // import com.tangosol.net.BackingMapManager;
         // import java.util.Iterator;
-        
+
         BackingMapManager manager  = getBackingMapManager();
         LongArray         laCaches = new SparseArray();
         for (Iterator iter = getStorageArray().iterator(); iter.hasNext(); )
@@ -3075,16 +3170,53 @@ public class PartitionedCache
             Storage storage  = (Storage) iter.next();
             String   sCache   = storage.getCacheName();
             long     lCacheId = storage.getCacheId();
-        
-            if (storage.isValid() && manager.isBackingMapPersistent(sCache, fSnapshot))
+            boolean  fPersist = storage.isPersistent();
+
+            if (!fPersist && fSnapshot && manager != null)
+                {
+                // In on-demand mode there is no active manager, so Storage.Persistent stays false
+                // even though snapshot creation still needs the cache extents materialized.
+                fPersist = manager.isBackingMapPersistent(sCache, true);
+                }
+
+            if (storage.isValid()
+                    && fPersist
+                    && !storage.isPersistentBackingMap()
+                    && (!fSnapshot || manager == null || manager.isBackingMapPersistent(sCache, true)))
                 {
                 laCaches.set(lCacheId, sCache);
                 }
             }
-        
+
         return laCaches;
         }
-    
+
+    /**
+     * Return a LongArray of the cache-ids mapped to the associated cache-name,
+     * of the valid storages that use a persistent backup map.
+     */
+    public com.tangosol.util.LongArray getPersistentBackupMapCacheIds()
+        {
+        // import com.tangosol.util.LongArray;
+        // import com.tangosol.util.SparseArray;
+        // import java.util.Iterator;
+
+        LongArray laCaches = new SparseArray();
+        for (Iterator iter = getStorageArray().iterator(); iter.hasNext(); )
+            {
+            Storage storage  = (Storage) iter.next();
+            String  sCache   = storage.getCacheName();
+            long    lCacheId = storage.getCacheId();
+
+            if (storage.isValid() && storage.isPersistentBackup())
+                {
+                laCaches.set(lCacheId, sCache);
+                }
+            }
+
+        return laCaches;
+        }
+
     // Accessor for the property "ProcessedEvents"
     /**
      * Getter for property ProcessedEvents.<p>
@@ -4354,7 +4486,7 @@ public class PartitionedCache
                         doBackupPutAll(mapBackup, Collections.singletonMap(binKey, binValue));
                         }
                     }
-                if (isBackupPersistence())
+                if (isBackupPersistence() && shouldPersistBackup(storage))
                     {
                     // persist backup, done asynchronously
                     persistBackup(iPartition, lCacheId, binKey, binValue, fRemove);
@@ -8453,7 +8585,7 @@ public class PartitionedCache
             }
 
         Storage storage = getKnownStorage(lCacheId);
-        if (storage != null && storage.isPersistent())
+        if (shouldPersistBackup(storage))
             {
             PartitionedCache.PartitionControl ctrlPart = (PartitionedCache.PartitionControl) getPartitionControl(nPartition);
             PersistentStore                   store    = ctrlPart.ensureOpenPersistentStore(null, true, true);
@@ -8497,7 +8629,7 @@ public class PartitionedCache
     protected void persistBackup(long lCacheId, java.util.Map mapEntries)
         {
         Storage storage = getKnownStorage(lCacheId);
-        if (storage != null && storage.isPersistent())
+        if (shouldPersistBackup(storage))
             {
             Map mapByPartKeys = splitKeysByPartition(mapEntries.keySet().iterator());
         
@@ -8545,7 +8677,7 @@ public class PartitionedCache
     protected void persistBackup(long lCacheId, java.util.Set setRemove)
         {
         Storage storage = getKnownStorage(lCacheId);
-        if (storage != null && storage.isPersistent())
+        if (shouldPersistBackup(storage))
             {
             Map mapByPartKeys = splitKeysByPartition(setRemove.iterator());
         
@@ -8587,8 +8719,36 @@ public class PartitionedCache
         }
     
     /**
+     * Return {@code true} if the storage should use the persistence side-channel.
+     */
+    protected boolean isPersistent(Storage storage)
+        {
+        return storage != null && storage.isPersistent() && !storage.isPersistentBackingMap();
+        }
+
+    /**
+     * Return {@code true} if backup changes should use the backup persistence
+     * side-channel instead of relying on the backup map to persist directly.
+     */
+    protected boolean shouldPersistBackup(Storage storage)
+        {
+        return storage != null && storage.isPersistent() && !storage.isPersistentBackup();
+        }
+
+    /**
+     * Return {@code true} if backup persistent stores should survive backup
+     * ownership changes for this service.
+     */
+    // TODO: tighten this service-wide check to inspect getPartitionControl(iPartition).getBackupMap()
+    // for per-partition precision if mixed cache-type over-retention becomes a concern.
+    protected boolean shouldRetainBackupPersistentStore(int iPartition)
+        {
+        return !getPersistentBackupMapCacheIds().isEmpty();
+        }
+
+    /**
      * Write the specified changes (asynchronously) to the persistent store.
-    * 
+     *
     * @param ctx                            the request context
     * @param collector                  the commit-token collector to be
     * notified upon persistence completion
@@ -8632,7 +8792,7 @@ public class PartitionedCache
                     Storage.EntryStatus status  = (Storage.EntryStatus) iterStatus.next();
                     Storage     storage = status.getStorage();
         
-                    if (storage.isPersistent() && status.isAnyAction())
+                    if (isPersistent(storage) && status.isAnyAction())
                         {
                         long       lExtentId = storage.getCacheId();
                         ReadBuffer bufKey    = status.getKey();
@@ -8685,7 +8845,7 @@ public class PartitionedCache
         // import java.util.Arrays;
         
         Storage storage  = status.getStorage();
-        boolean  fPersist = storage.isPersistent();
+        boolean  fPersist = isPersistent(storage);
         
         if (fPersist)
             {
@@ -9794,7 +9954,7 @@ public class PartitionedCache
                     }
         
                 // persist the change
-                if (storage.isPersistent())
+                if (isPersistent(storage))
                     {
                     // Use the backup request as the commit-token collector for the
                     // persistence operations (if there is a backup).  Otherwise,
@@ -9937,7 +10097,7 @@ public class PartitionedCache
             {
             PartitionedCache.BackupAllRequest[] aMsg         = null;
             Map                 mapStatuses  = null;
-            boolean             fPersist     = getPersistenceManager() != null;
+            boolean             fPersist     = false;
             boolean             fPersistSync = true;
             boolean             fChangedAny  = false;
             PartitionedCache.EventsHelper       evtHelper    = getEventsHelper();
@@ -9981,11 +10141,14 @@ public class PartitionedCache
         
                     boolean fChange = status.isAnyAction();
                     boolean fResult = status.getResult() != null;
+                    boolean fPersistStatus = isPersistent(status.getStorage());
+
+                    fPersist |= fPersistStatus;
         
                     // prepare the keys to be included in the backup message;
                     // only include Storage.EntryStatus objects that have been "updated" or
                     // "removed" in the backup message or have an associated result
-                    if ((fChange || fResult) && (cBackups > 0 || fPersist))
+                    if ((fChange || fResult) && (cBackups > 0 || fPersistStatus))
                         {
                         int     nPartition = status.getPartition();
                         Integer NPartition = Integer.valueOf(nPartition);
@@ -10068,7 +10231,18 @@ public class PartitionedCache
                                 mapVersions.put(NPartition, Long.valueOf(lVersion));
                                 }
         
-                            if (fPersist)
+                            boolean fPersistPartition = false;
+                            for (Iterator iterStatus = ((Collection) mapStatuses.get(NPartition)).iterator();
+                                 iterStatus.hasNext(); )
+                                {
+                                if (isPersistent(((Storage.EntryStatus) iterStatus.next()).getStorage()))
+                                    {
+                                    fPersistPartition = true;
+                                    break;
+                                    }
+                                }
+
+                            if (fPersistPartition)
                                 {
                                 if (ctxBatch.completeOnPersist(ctrlPartition.initiatePersist(), nPartition))
                                     {
@@ -10357,7 +10531,7 @@ public class PartitionedCache
      * Recover the specified partition from the specified store (which is opened
     * for reading).
     * This method may only be called if a persistence manager is configured.
-    * 
+    *
     * @param iPartition        the partition being recovered
     * @param storeFrom     the PersistentStore being recovered from
     * @param storeTo          the active PersistentStore to write recovered
@@ -10368,6 +10542,27 @@ public class PartitionedCache
     * @return true iff the partition was successfully recovered
      */
     public boolean recoverPartition(int iPartition, com.oracle.coherence.persistence.PersistentStore storeFrom, com.oracle.coherence.persistence.PersistentStore storeTo, java.util.List listRequests)
+        {
+        return recoverPartition(iPartition, storeFrom, storeTo, listRequests, false);
+        }
+
+    // Declared at the super level
+    /**
+     * Recover the specified partition from the specified store (which is opened
+    * for reading).
+    * This method may only be called if a persistence manager is configured.
+    *
+    * @param iPartition        the partition being recovered
+    * @param storeFrom     the PersistentStore being recovered from
+    * @param storeTo          the active PersistentStore to write recovered
+    * contents into, or null if no active persistence is configured
+    * @param listRequests  a list of requests that will be posted to the
+    * service after recovery is complete
+    * @param fSparseSnapshot true iff the source is from a sparse snapshot
+    *
+    * @return true iff the partition was successfully recovered
+     */
+    public boolean recoverPartition(int iPartition, com.oracle.coherence.persistence.PersistentStore storeFrom, com.oracle.coherence.persistence.PersistentStore storeTo, java.util.List listRequests, boolean fSparseSnapshot)
         {
         // import com.oracle.coherence.persistence.PersistenceException;
         // import com.oracle.coherence.persistence.PersistentStore;
@@ -10386,11 +10581,13 @@ public class PartitionedCache
         // import java.util.Map;
         
         // create a LongArray of Storage, indexed by the cache IDs as they were persisted
-        LongArray       laStoragePrev    = com.tangosol.persistence.CachePersistenceHelper.getCacheNames(storeFrom);
+        LongArray       laStoragePrev    = fSparseSnapshot
+                ? com.tangosol.persistence.CachePersistenceHelper.getCacheNamesForSnapshotRecovery(storeFrom, true)
+                : com.tangosol.persistence.CachePersistenceHelper.getCacheNamesForActiveRecovery(storeFrom);
         LongArray       laStorage        = new SparseArray();
         boolean         fWriteCacheNames = false;
         PersistentStore storeEvents      = getPartitionControl(iPartition).getPersistentEventsStore();
-        
+
         for (com.tangosol.util.LongArray.Iterator iter = laStoragePrev.iterator(); iter.hasNext(); )
             {
             Storage storage = getStorage((String) iter.next());
@@ -10417,7 +10614,7 @@ public class PartitionedCache
                     if (storage.isPersistent())
                         {
                         com.tangosol.persistence.CachePersistenceHelper.moveExtents(storeTo, lCacheIdPrev, lCacheId);
-        
+
                         if (storeEvents != null)
                             {
                             com.tangosol.persistence.CachePersistenceHelper.moveExtents(storeEvents, lCacheIdPrev, lCacheId);
@@ -10468,9 +10665,17 @@ public class PartitionedCache
             visitor.setStorageArray(laStorage);
             visitor.setStorageArrayPrev(laStoragePrev);
             visitor.setPartition(iPartition);
-        
-            storeFrom.iterate(com.tangosol.persistence.CachePersistenceHelper.instantiatePersistenceVisitor(visitor));
-        
+
+            com.oracle.coherence.persistence.PersistentStore.Visitor visitorPersistence =
+                    com.tangosol.persistence.CachePersistenceHelper.instantiatePersistenceVisitor(visitor);
+            boolean fJournalMaterialized =
+                    com.tangosol.persistence.journal.JournalPersistenceManager.tryIterateRecoveryMaterialized(
+                            storeFrom, visitorPersistence);
+            if (!fJournalMaterialized)
+                {
+                storeFrom.iterate(visitorPersistence);
+                }
+
             cRecovered = visitor.getStatsEntriesRecovered();
         
             if (storeEvents != null)
@@ -10478,9 +10683,9 @@ public class PartitionedCache
                 for (com.tangosol.util.LongArray.Iterator iter = laStorage.iterator(); iter.hasNext(); )
                     {
                     Storage storage = (Storage) iter.next();
-        
+
                     Map mapEventLast = new LiteMap();
-        
+
                     storeEvents.iterate(com.tangosol.persistence.CachePersistenceHelper.instantiateEventsVisitor(
                             storage.getCacheId(),
                             AlwaysFilter.INSTANCE,
@@ -10490,17 +10695,17 @@ public class PartitionedCache
                             com.tangosol.persistence.CachePersistenceHelper.LONG_CONVERTER_UP,
                             storage.getConverterValueDown(),
                             storage.getConverterUp()));
-        
+
                     if (!mapEventLast.isEmpty())
                         {
                         long lVersionLatest = ((Long) mapEventLast.keySet().iterator().next()).longValue();
-        
+
                         storage.getVersion().resetSubmitted(iPartition, lVersionLatest);
                         }
                     }
                 }
         
-            return super.recoverPartition(iPartition, storeFrom, storeTo, listRequests);
+            return super.recoverPartition(iPartition, storeFrom, storeTo, listRequests, fSparseSnapshot);
             }
         catch (Throwable t)
             {
@@ -10556,10 +10761,15 @@ public class PartitionedCache
         Map       mapGraveYard = getStorageGraveyard();
         LongArray laCaches     = new SparseArray();
         
-        for (Iterator iter = mapStoresTo.values().iterator(); iter.hasNext(); )
+        for (Iterator iter = mapStoresTo.entrySet().iterator(); iter.hasNext(); )
             {
-            PersistentStore store         = (PersistentStore) iter.next();
-            LongArray       laStoreCaches = com.tangosol.persistence.CachePersistenceHelper.getCacheNames(store);
+            java.util.Map.Entry entry     = (java.util.Map.Entry) iter.next();
+            PersistentStore     store     = (PersistentStore) entry.getValue();
+            Object[]            aoStores  = (Object[]) mapStoresFrom.get(entry.getKey());
+            boolean             fSparseSnapshot = aoStores.length > 2 && ((Boolean) aoStores[2]).booleanValue();
+            LongArray           laStoreCaches   = fSparseSnapshot
+                    ? com.tangosol.persistence.CachePersistenceHelper.getCacheNamesForSnapshotRecovery(store, true)
+                    : com.tangosol.persistence.CachePersistenceHelper.getCacheNamesForActiveRecovery(store);
         
             for (com.tangosol.util.LongArray.Iterator crawler = laStoreCaches.iterator(); crawler.hasNext(); )
                 {
@@ -10883,7 +11093,7 @@ public class PartitionedCache
                 }
             }
         }
-    
+
     /**
      * Remove storage of the specified cacheId from the storage array.
      */
@@ -31949,14 +32159,31 @@ public class PartitionedCache
                         LongArray         laCaches = null;
             
                         PersistentStore store = ensureOpenPersistentStore(null, true, true);
-                        if (store != null && store.ensureExtent(lExtentId))
+                        if (store != null)
                             {
+                            boolean fEnsureExtent = store.ensureExtent(lExtentId);
+                            String  sCacheName    = null;
+                            String  sCacheStored  = null;
+
                             if (laCaches == null)
                                 {
                                 laCaches = ((PartitionedCache) get_Module()).getPersistentCacheIds();
+                                sCacheName = (String) laCaches.get(lExtentId);
                                 }
-            
-                            com.tangosol.persistence.CachePersistenceHelper.storeCacheNames(store, laCaches);
+
+                            if (sCacheName != null)
+                                {
+                                if (store.containsExtent(com.tangosol.persistence.CachePersistenceHelper.META_EXTENT))
+                                    {
+                                    sCacheStored = (String) com.tangosol.persistence.CachePersistenceHelper
+                                            .getCacheNamesForActiveRecovery(store).get(lExtentId);
+                                    }
+
+                                if (fEnsureExtent || !Base.equals(sCacheStored, sCacheName))
+                                    {
+                                    com.tangosol.persistence.CachePersistenceHelper.storeCacheNames(store, laCaches);
+                                    }
+                                }
                             }
             
                         setExtents.remove(lExtentId);
@@ -33735,7 +33962,7 @@ public class PartitionedCache
                 PartitionedCache           service         = (PartitionedCache) getService();
                 BackingMapManager manager         = service.getBackingMapManager();
                 long[]            alCacheId       = store.extents();
-                LongArray         laCaches        = com.tangosol.persistence.CachePersistenceHelper.getCacheNames(store);
+                LongArray         laCaches        = com.tangosol.persistence.CachePersistenceHelper.getCacheNamesForActiveRecovery(store);
                 boolean           fWriteCacheName = false;
                 
                 for (int i = 0, c = alCacheId.length; i < c; i++)

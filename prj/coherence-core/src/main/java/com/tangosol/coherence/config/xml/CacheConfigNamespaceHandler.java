@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -24,6 +24,7 @@ import com.tangosol.coherence.config.scheme.DistributedScheme;
 import com.tangosol.coherence.config.scheme.ExternalScheme;
 import com.tangosol.coherence.config.scheme.FlashJournalScheme;
 import com.tangosol.coherence.config.scheme.InvocationScheme;
+import com.tangosol.coherence.config.scheme.JournalScheme;
 import com.tangosol.coherence.config.scheme.LocalScheme;
 import com.tangosol.coherence.config.scheme.NamedTopicScheme;
 import com.tangosol.coherence.config.scheme.NearScheme;
@@ -311,6 +312,7 @@ public class CacheConfigNamespaceHandler
         registerProcessor("federated-scheme", new UnsupportedFeatureProcessor("Federated Caching"));
         registerProcessor("flashjournal-scheme",
                           new CustomizableBuilderProcessor<>(FlashJournalScheme.class));
+        registerProcessor("journal-scheme", new CustomizableBuilderProcessor<>(JournalScheme.class));
         registerProcessor("guardian-timeout", new MillisProcessor());
         registerProcessor("grpc-channel", NoOpElementProcessor.INSTANCE);
         registerProcessor("heartbeat-interval", new MillisProcessor());

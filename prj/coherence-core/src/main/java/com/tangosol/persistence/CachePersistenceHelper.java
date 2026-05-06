@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -197,12 +197,12 @@ public class CachePersistenceHelper
         }
 
     /**
-     * Remove a seal from a PersistentStore.
+     * Remove a seal from a PersistentStore in active recovery context.
      *
      * @param store  the {@link PersistentStore store} the seal should be
      *               removed from
      */
-    public static void unseal(PersistentStore<ReadBuffer> store)
+    public static void unsealForActiveRecovery(PersistentStore<ReadBuffer> store)
         {
         if (!store.isOpen())
             {
@@ -216,6 +216,25 @@ public class CachePersistenceHelper
         store.erase(META_EXTENT, BINARY_SEAL, oToken);
 
         store.commit(oToken);
+        }
+
+    /**
+     * Remove a seal from a PersistentStore in sparse snapshot recovery context.
+     * Empty stores are accepted only when the caller has already established
+     * sparse snapshot context from the snapshot root.
+     *
+     * @param store            the {@link PersistentStore store} the seal should be
+     *                         removed from
+     * @param fSparseSnapshot  true iff the snapshot root has been identified as sparse
+     */
+    public static void unsealForSnapshotRecovery(PersistentStore<ReadBuffer> store, boolean fSparseSnapshot)
+        {
+        if (isEmptySparseSnapshotStore(store, fSparseSnapshot))
+            {
+            return;
+            }
+
+        unsealForActiveRecovery(store);
         }
 
     /**
@@ -329,19 +348,14 @@ public class CachePersistenceHelper
         }
 
     /**
-     * Validate the specified store to check that it has been sealed, indicating
-     * that it is eligible to be recovered by the specified service.
-     * <p>
-     * Successful validation is determined by this method not appending to the
-     * provided StringBuilder. Failure to validate the store results in a
-     * description of the validation being appended to the provided StringBuilder.
+     * Validate the specified store in active recovery context.
      *
      * @param store    the persistent store to validate
      * @param service  the partitioned service
      *
      * @throws PersistenceException if the persistent store operations fail
      */
-    public static void validate(PersistentStore store, PartitionedService service)
+    public static void validateForActiveRecovery(PersistentStore store, PartitionedService service)
         {
         if (!store.isOpen())
             {
@@ -391,6 +405,27 @@ public class CachePersistenceHelper
         }
 
     /**
+     * Validate the specified store in sparse snapshot recovery context. Empty
+     * stores are accepted only when the caller has already established sparse
+     * snapshot context from the snapshot root.
+     *
+     * @param store            the persistent store to validate
+     * @param service          the partitioned service
+     * @param fSparseSnapshot  true iff the snapshot root has been identified as sparse
+     *
+     * @throws PersistenceException if the persistent store operations fail
+     */
+    public static void validateForSnapshotRecovery(PersistentStore store, PartitionedService service, boolean fSparseSnapshot)
+        {
+        if (isEmptySparseSnapshotStore(store, fSparseSnapshot))
+            {
+            return;
+            }
+
+        validateForActiveRecovery(store, service);
+        }
+
+    /**
      * Persist the specified cache names in the persistent store.
      *
      * @param store     the persistent store to store the cache names to
@@ -431,8 +466,7 @@ public class CachePersistenceHelper
         }
 
     /**
-     * Return the cache names that have been {@link #storeCacheNames stored}
-     * in the specified store.
+     * Return the cache names in active recovery context.
      *
      * @param store  the persistent store to load the cache names from
      *
@@ -440,7 +474,7 @@ public class CachePersistenceHelper
      *
      * @throws PersistenceException if the persistent store operations fail
      */
-    public static LongArray<String> getCacheNames(PersistentStore<ReadBuffer> store)
+    public static LongArray<String> getCacheNamesForActiveRecovery(PersistentStore<ReadBuffer> store)
         {
         LongArray<String> laCaches = new SparseArray<>();
         if (!store.isOpen())
@@ -472,6 +506,44 @@ public class CachePersistenceHelper
             }
 
         return laCaches;
+        }
+
+    /**
+     * Return the cache names in sparse snapshot recovery context. Empty stores
+     * are accepted only when the caller has already established sparse snapshot
+     * context from the snapshot root.
+     *
+     * @param store            the persistent store to load the cache names from
+     * @param fSparseSnapshot  true iff the snapshot root has been identified as sparse
+     *
+     * @return a LongArray of cache names, indexed by the cache-id
+     *
+     * @throws PersistenceException if the persistent store operations fail
+     */
+    public static LongArray<String> getCacheNamesForSnapshotRecovery(PersistentStore<ReadBuffer> store,
+            boolean fSparseSnapshot)
+        {
+        if (isEmptySparseSnapshotStore(store, fSparseSnapshot))
+            {
+            return new SparseArray<>();
+            }
+
+        return getCacheNamesForActiveRecovery(store);
+        }
+
+    /**
+     * Return true iff the specified store is an empty store in an established
+     * sparse snapshot context.
+     *
+     * @param store            the persistent store to inspect
+     * @param fSparseSnapshot  true iff the snapshot root has been identified as sparse
+     *
+     * @return true iff the store is open, sparse snapshot context is established,
+     *         and the store has no extents
+     */
+    private static boolean isEmptySparseSnapshotStore(PersistentStore store, boolean fSparseSnapshot)
+        {
+        return fSparseSnapshot && store.isOpen() && store.extents().length == 0;
         }
 
     /**
@@ -603,16 +675,44 @@ public class CachePersistenceHelper
      */
     public static void moveExtents(PersistentStore store, long lOldExtentId, long lNewExtentId)
         {
+        long[] alSrcExtentIds  = new long[RESERVED_META_EXTENTS + 1];
+        long[] alDestExtentIds = new long[RESERVED_META_EXTENTS + 1];
+        int    cMove           = 0;
+
         long lSrcExtent  = lOldExtentId;
         long lDestExtent = lNewExtentId;
 
         for (int i = 0; i <= RESERVED_META_EXTENTS; ++i)
             {
-            store.moveExtent(lSrcExtent, lDestExtent);
+            if (store.containsExtent(lSrcExtent))
+                {
+                alSrcExtentIds[cMove]  = lSrcExtent;
+                alDestExtentIds[cMove] = lDestExtent;
+                ++cMove;
+                }
 
             lSrcExtent  = -lOldExtentId - i;
             lDestExtent = -lNewExtentId - i;
             }
+
+        if (cMove == 0)
+            {
+            return;
+            }
+
+        if (cMove < alSrcExtentIds.length)
+            {
+            long[] alSrcMove  = new long[cMove];
+            long[] alDestMove = new long[cMove];
+
+            System.arraycopy(alSrcExtentIds, 0, alSrcMove, 0, cMove);
+            System.arraycopy(alDestExtentIds, 0, alDestMove, 0, cMove);
+
+            alSrcExtentIds  = alSrcMove;
+            alDestExtentIds = alDestMove;
+            }
+
+        store.moveExtents(alSrcExtentIds, alDestExtentIds);
         }
 
     // ----- persistence metadata support -----------------------------------
@@ -684,6 +784,65 @@ public class CachePersistenceHelper
                 Logger.finer("Error in writing metadata file: " + fileMeta.getCanonicalPath(), e);
                 }
             }
+        }
+
+    /**
+     * Read persistence metadata from the specified directory if present.
+     *
+     * @param fileDir  the directory to read metadata from
+     *
+     * @return the metadata, or {@code null} if no metadata file exists
+     *
+     * @throws IOException on error reading the metadata file
+     */
+    public static Properties readMetadataIfPresent(File fileDir)
+            throws IOException
+        {
+        File fileMeta = new File(fileDir, META_FILENAME);
+        return fileMeta.isFile() ? readMetadata(fileDir) : null;
+        }
+
+    /**
+     * Return {@code true} if the provided metadata marks the snapshot as sparse.
+     *
+     * @param prop  the metadata to inspect
+     *
+     * @return {@code true} if the snapshot is sparse
+     */
+    public static boolean isSnapshotSparse(Properties prop)
+        {
+        return prop != null && Boolean.parseBoolean(prop.getProperty(META_SPARSE_SNAPSHOT, "false"));
+        }
+
+    /**
+     * Return {@code true} if the specified local snapshot is marked as sparse.
+     *
+     * @param env        the persistence environment
+     * @param sSnapshot  the snapshot name
+     *
+     * @return {@code true} if the specified local snapshot is sparse
+     */
+    public static boolean isLocalSnapshotSparse(PersistenceEnvironment env, String sSnapshot)
+        {
+        env = SafePersistenceWrappers.unwrap(env);
+        if (!(env instanceof AbstractPersistenceEnvironment))
+            {
+            return false;
+            }
+
+        File       fileSnapshot = new File(((AbstractPersistenceEnvironment) env).getPersistenceSnapshotDirectory(),
+                FileHelper.toFilename(sSnapshot));
+        Properties props;
+        try
+            {
+            props = readMetadataIfPresent(fileSnapshot);
+            }
+        catch (IOException e)
+            {
+            throw ensurePersistenceException(e, "Unable to read metadata for snapshot " + sSnapshot);
+            }
+
+        return isSnapshotSparse(props);
         }
 
     /**
@@ -1895,6 +2054,11 @@ public class CachePersistenceHelper
      * Persistence metadata property: service version.
      */
     public static final String META_SERVICE_VERSION = "service.version";
+
+    /**
+     * Persistence metadata property: sparse snapshot marker.
+     */
+    public static final String META_SPARSE_SNAPSHOT = "snapshot.sparse";
 
     /**
      * Persistence protocol version.

@@ -107,10 +107,43 @@ public class BerkeleyDBSimplePersistenceTests
         return "simple-persistence-bdb-cache-config.xml";
         }
 
+    // ----- functional smoke tests ----------------------------------------
+
+    /**
+     * Smoke test for active persistence restart recovery.
+     */
+    @Test
+    public void testActiveRecoverySmoke()
+            throws IOException
+        {
+        testSingleServer();
+        }
+
+    /**
+     * Smoke test for active persistence snapshot recovery.
+     */
+    @Test
+    public void testActiveSnapshotSmoke()
+            throws IOException, MBeanException
+        {
+        testSnapshotSmoke("testActiveSnapshotSmoke" + getPersistenceManagerName(), "simple-persistent", true);
+        }
+
+    /**
+     * Smoke test for active-backup persistence restart recovery.
+     */
+    @Test
+    public void testActiveBackupSmoke()
+            throws IOException, MBeanException
+        {
+        testActiveBackupSmoke("testActiveBackupSmoke" + getPersistenceManagerName(), "simple-persistent");
+        }
+
+    // ----- endurance entry points ----------------------------------------
+
     /**
      * Test multiple restarts with ensure cache for active persistence.
      */
-    @Test
     public void testRestartsWithEnsureCacheForActiveMode()
             throws IOException, MBeanException
         {
@@ -120,7 +153,6 @@ public class BerkeleyDBSimplePersistenceTests
     /**
      * Test multiple restarts with ensure cache for async-active persistence.
      */
-    @Test
     public void testRestartsWithEnsureCacheForAsyncActiveMode()
             throws IOException, MBeanException
         {
@@ -130,7 +162,6 @@ public class BerkeleyDBSimplePersistenceTests
     /**
      * Test multiple restarts with ensure cache for active-backup persistence.
      */
-    @Test
     public void testRestartsWithEnsureCacheForActiveBackupMode()
             throws IOException, MBeanException
         {
@@ -141,7 +172,6 @@ public class BerkeleyDBSimplePersistenceTests
      * Regression test for COH-33056: stress index rebuild after persistence
      * recovery with a larger partition count.
      */
-    @Test
     public void testIndexConsistencyAfterRecoveryWithManyPartitions()
             throws IOException, MBeanException
         {
@@ -262,7 +292,6 @@ public class BerkeleyDBSimplePersistenceTests
     /**
      * Test 2 server storage, 1 server restart with backup persistence.
      */
-    @Test
     public void testBackupPersistence2()
             throws IOException, MBeanException
         {
@@ -272,7 +301,6 @@ public class BerkeleyDBSimplePersistenceTests
     /**
      * Test 3 server storage, 1 server restart with backup persistence.
      */
-    @Test
     public void testBackupPersistence3()
             throws IOException, MBeanException
         {
@@ -283,7 +311,6 @@ public class BerkeleyDBSimplePersistenceTests
      * Test 4 server storage, 1 server restart with backup persistence and
      * backup count at 2.
      */
-    @Test
     public void testBackupPersistence4()
             throws IOException, MBeanException
         {
@@ -294,7 +321,6 @@ public class BerkeleyDBSimplePersistenceTests
      * Test 4 server storage, 1 server restart with backup persistence and
      * backup count at 2, and after rolling restarts.
      */
-    @Test
     public void testBackupPersistence4Rolling()
             throws IOException, MBeanException
         {

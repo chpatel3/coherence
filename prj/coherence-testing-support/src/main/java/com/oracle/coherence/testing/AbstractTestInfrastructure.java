@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -95,6 +95,7 @@ import java.util.Properties;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 import java.security.PrivilegedAction;
 
@@ -925,6 +926,8 @@ public abstract class AbstractTestInfrastructure
             optionsByType.add(JMXManagementMode.NONE);
             }
 
+        optionsByType.add(SystemProperty.of(JmxFeature.SUN_MANAGEMENT_JMXREMOTE_PORT,
+                (Supplier<Integer>) () -> LocalPlatform.get().getAvailablePorts().next()));
         optionsByType.add(JmxFeature.enabled());
         optionsByType.add(SystemProperty.of(JavaApplication.JAVA_RMI_SERVER_HOSTNAME,
                                             LocalPlatform.get().getLoopbackAddress().getHostAddress()));

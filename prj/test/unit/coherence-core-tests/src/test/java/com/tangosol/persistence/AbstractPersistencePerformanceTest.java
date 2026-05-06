@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2022, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -30,6 +30,7 @@ import java.util.Date;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 
 /**
@@ -140,6 +141,20 @@ public abstract class AbstractPersistencePerformanceTest
         System.out.println();
         }
 
+    @Ignore("benchmark")
+    @Test
+    public void testSmallSequentialLoadPhase()
+            throws IOException
+        {
+        System.out.println(ClassHelper.getSimpleName(getClass())
+                + ".testSmallSequentialLoadPhase():");
+
+        ReadBuffer[] abKeys = createKeySequence(10000);
+        profileLoadPhase(abKeys, BINARY_SMALL_VALUE, 20);
+
+        System.out.println();
+        }
+
     @Test
     public void testLargeRandomLoad()
             throws IOException
@@ -195,6 +210,20 @@ public abstract class AbstractPersistencePerformanceTest
         System.out.println();
         }
 
+    @Ignore("benchmark")
+    @Test
+    public void testSmallIterationPhase()
+            throws IOException
+        {
+        System.out.println(ClassHelper.getSimpleName(getClass())
+                + ".testSmallIterationPhase():");
+
+        ReadBuffer[] abKeys = createKeySequence(10000);
+        profileIterationPhase(abKeys, BINARY_SMALL_VALUE, 20);
+
+        System.out.println();
+        }
+
     @Test
     public void testLargeIteration()
             throws IOException
@@ -246,6 +275,32 @@ public abstract class AbstractPersistencePerformanceTest
             {
             profileStore(abKeys, BINARY_SMALL_VALUE);
             }
+
+        System.out.println();
+        }
+
+    @Ignore("benchmark")
+    @Test
+    public void testSmallSequentialStorePhase()
+            throws IOException
+        {
+        System.out.println(ClassHelper.getSimpleName(getClass())
+                + ".testSmallSequentialStorePhase():");
+
+        profileStorePhase(10000, 10, BINARY_SMALL_VALUE);
+
+        System.out.println();
+        }
+
+    @Ignore("benchmark")
+    @Test
+    public void testMediumSequentialStorePhase()
+            throws IOException
+        {
+        System.out.println(ClassHelper.getSimpleName(getClass())
+                + ".testMediumSequentialStorePhase():");
+
+        profileStorePhase(1000, 10, BINARY_MEDIUM_VALUE);
 
         System.out.println();
         }
@@ -522,6 +577,104 @@ public abstract class AbstractPersistencePerformanceTest
             long ldtEnd = System.currentTimeMillis();
 
             outputResults("iteration", ldtStart, ldtEnd, abKeys.length);
+            }
+        finally
+            {
+            deletePersistentStore();
+            }
+        }
+
+    /**
+     * Profile a longer-running store phase without interleaving teardown work.
+     *
+     * @param cKeysPerRound  the number of keys to store per round
+     * @param cRounds        the number of rounds to execute
+     * @param binValue       the value to store for each key
+     */
+    protected void profileStorePhase(int cKeysPerRound, int cRounds, Binary binValue)
+        {
+        AbstractPersistentStore store = ensurePersistentStore();
+        try
+            {
+            store.ensureExtent(1L);
+
+            long ldtStart = System.currentTimeMillis();
+            for (int nRound = 0; nRound < cRounds; nRound++)
+                {
+                int nBase = nRound * cKeysPerRound;
+                for (int i = 0; i < cKeysPerRound; i++)
+                    {
+                    store.store(1L, convertIntToReadBuffer(nBase + i), binValue, null);
+                    }
+                }
+            long ldtEnd = System.currentTimeMillis();
+
+            outputResults("store-phase", ldtStart, ldtEnd, cKeysPerRound * cRounds);
+            }
+        finally
+            {
+            deletePersistentStore();
+            }
+        }
+
+    /**
+     * Profile a load-only phase after one-time population.
+     *
+     * @param abKeys       the keys to load
+     * @param binValue     the value to associate with each key
+     * @param cIterations  the number of timed passes
+     */
+    protected void profileLoadPhase(ReadBuffer[] abKeys, Binary binValue, int cIterations)
+        {
+        AbstractPersistentStore store = ensurePersistentStore();
+        try
+            {
+            populateStore(store, abKeys, binValue);
+
+            long ldtStart = System.currentTimeMillis();
+            for (int i = 0; i < cIterations; i++)
+                {
+                consumeStore(store, abKeys);
+                }
+            long ldtEnd = System.currentTimeMillis();
+
+            outputResults("load-phase", ldtStart, ldtEnd, abKeys.length * cIterations);
+            }
+        finally
+            {
+            deletePersistentStore();
+            }
+        }
+
+    /**
+     * Profile an iteration-only phase after one-time population.
+     *
+     * @param abKeys       the keys to iterate
+     * @param binValue     the value to associate with each key
+     * @param cIterations  the number of timed passes
+     */
+    protected void profileIterationPhase(ReadBuffer[] abKeys, Binary binValue, int cIterations)
+        {
+        AbstractPersistentStore store = ensurePersistentStore();
+        try
+            {
+            populateStore(store, abKeys, binValue);
+
+            long ldtStart = System.currentTimeMillis();
+            for (int i = 0; i < cIterations; i++)
+                {
+                store.iterate(new Visitor<ReadBuffer>()
+                    {
+                    @Override
+                    public boolean visit(long lExtentId, ReadBuffer abKey, ReadBuffer binValue)
+                        {
+                        return true;
+                        }
+                    });
+                }
+            long ldtEnd = System.currentTimeMillis();
+
+            outputResults("iteration-phase", ldtStart, ldtEnd, abKeys.length * cIterations);
             }
         finally
             {

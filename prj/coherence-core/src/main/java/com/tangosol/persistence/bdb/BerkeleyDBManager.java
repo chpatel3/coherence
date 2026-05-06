@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -728,7 +728,8 @@ public class BerkeleyDBManager
             {
             try
                 {
-                for (String sName : ensureEnvironment().getDatabaseNames())
+                List<String> listDatabaseNames    = ensureEnvironment().getDatabaseNames();
+                for (String sName : listDatabaseNames)
                     {
                     Long LId = Long.valueOf(sName);
                     if (set.add(Long.valueOf(sName)))

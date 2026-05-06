@@ -1087,6 +1087,31 @@
         </xsd:annotation>
     </xsd:element>
 
+    <xsd:element name="persistence-type" type="coherence-string-type">
+        <xsd:annotation>
+            <xsd:documentation>
+                The persistence-type element specifies the persistence
+                implementation to use. Legal values are: bdb, journal.
+
+                Default value is "bdb".
+
+                Used in: persistence-environment
+            </xsd:documentation>
+        </xsd:annotation>
+    </xsd:element>
+
+    <xsd:element name="migration-source-directory" type="coherence-string-type">
+        <xsd:annotation>
+            <xsd:documentation>
+                The migration-source-directory element contains the path to a
+                source snapshot directory to import when journal persistence is
+                first started.
+
+                Used in: persistence-environment
+            </xsd:documentation>
+        </xsd:annotation>
+    </xsd:element>
+
     <xsd:element name="archive-directory" type="coherence-string-type">
         <xsd:annotation>
             <xsd:documentation>
@@ -1111,10 +1136,12 @@
             <xsd:sequence>
                 <xsd:element ref="instance" minOccurs="0" maxOccurs="1" />
                 <xsd:element ref="persistence-mode" minOccurs="0" />
+                <xsd:element ref="persistence-type" minOccurs="0" />
                 <xsd:element ref="active-directory" minOccurs="0" />
                 <xsd:element ref="backup-directory" minOccurs="0" />
                 <xsd:element ref="snapshot-directory" minOccurs="0" />
                 <xsd:element ref="trash-directory" minOccurs="0" />
+                <xsd:element ref="migration-source-directory" minOccurs="0" />
             </xsd:sequence>
             <xsd:attribute name="xml-override" use="optional" />
             <xsd:attribute name="id" type="xsd:NMTOKEN" use="required" />

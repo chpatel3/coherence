@@ -245,6 +245,9 @@
                 <moduleInfo>
                   <name>${module.name}</name>
                   <open>true</open>
+                  <requires>
+                    jdk.jfr;
+                  </requires>
                   <exports>
                     com.tangosol.coherence.transaction.internal to com.oracle.coherence.transaction.core;
                     com.tangosol.coherence.transaction.internal.* to com.oracle.coherence.transaction.core;

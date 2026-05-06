@@ -1,8 +1,8 @@
 /*
- * Copyright (c) 2000, 2022, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
- * http://oss.oracle.com/licenses/upl.
+ * https://oss.oracle.com/licenses/upl.
  */
 package com.tangosol.net;
 
@@ -12,8 +12,12 @@ import com.tangosol.coherence.component.util.SafeService;
 import com.tangosol.coherence.config.ResourceMapping;
 import com.tangosol.coherence.config.scheme.ServiceScheme;
 
+import com.tangosol.internal.util.PartitionedCacheComponent;
+
 import com.tangosol.io.pof.reflect.internal.InvocationStrategies.FieldInvocationStrategy;
 import com.tangosol.io.pof.reflect.internal.InvocationStrategy;
+
+import com.tangosol.persistence.journal.PersistentBackingMap;
 
 import com.tangosol.net.ExtensibleConfigurableCacheFactory.Dependencies;
 import com.tangosol.net.ExtensibleConfigurableCacheFactory.DependenciesHelper;
@@ -36,6 +40,7 @@ import com.tangosol.run.xml.XmlElement;
 import com.tangosol.run.xml.XmlHelper;
 
 import com.tangosol.util.ResourceRegistry;
+import com.tangosol.util.SimpleResourceRegistry;
 import org.junit.Test;
 
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -48,6 +53,7 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
@@ -55,6 +61,7 @@ import static org.junit.Assert.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -327,6 +334,58 @@ public class ExtensibleConfigurableCacheFactoryTest
             {
             eccf.dispose();
             }
+        }
+
+    @Test
+    public void shouldInstantiateJournalBackupMapForEccfBackupStorage()
+            throws Exception
+        {
+        XmlElement xmlConfig = new SimpleParser(true).parseXml(
+                LOCAL_LOCATION
+                + "  <caching-scheme-mapping>\n"
+                + "    <cache-mapping>\n"
+                + "      <cache-name>journal-backup</cache-name>\n"
+                + "      <scheme-name>journal-distributed</scheme-name>\n"
+                + "    </cache-mapping>\n"
+                + "  </caching-scheme-mapping>\n"
+                + "  <caching-schemes>\n"
+                + "    <distributed-scheme>\n"
+                + "      <scheme-name>journal-distributed</scheme-name>\n"
+                + "      <backup-storage>\n"
+                + "        <type>journal</type>\n"
+                + "      </backup-storage>\n"
+                + "      <backing-map-scheme>\n"
+                + "        <journal-scheme/>\n"
+                + "      </backing-map-scheme>\n"
+                + "      <persistence>\n"
+                + "        <environment>default-active-backup</environment>\n"
+                + "      </persistence>\n"
+                + "    </distributed-scheme>\n"
+                + "  </caching-schemes>\n"
+                + "</cache-config>");
+
+        Dependencies                       deps    = DependenciesHelper.newInstance(xmlConfig);
+        ExtensibleConfigurableCacheFactory eccf    = new ExtensibleConfigurableCacheFactory(deps);
+        ExtensibleConfigurableCacheFactory.Manager manager = new ExtensibleConfigurableCacheFactory.Manager(eccf);
+        BackingMapManagerContext           context = mock(BackingMapManagerContext.class);
+        CacheService                       service = mock(CacheService.class, withSettings().extraInterfaces(PartitionedCacheComponent.class));
+        PartitionedCacheComponent          servicePartitioned = (PartitionedCacheComponent) service;
+        ServiceInfo                        info    = mock(ServiceInfo.class);
+
+        when(context.getClassLoader()).thenReturn(getClass().getClassLoader());
+        when(context.getCacheService()).thenReturn(service);
+        when(service.getInfo()).thenReturn(info);
+        when(service.getResourceRegistry()).thenReturn(new SimpleResourceRegistry());
+        when(info.getServiceType()).thenReturn(CacheService.TYPE_DISTRIBUTED);
+        when(servicePartitioned.getPartitionCount()).thenReturn(257);
+        when(servicePartitioned.getCacheId("journal-backup")).thenReturn(1L);
+
+        manager.init(context);
+
+        Map map = manager.instantiateBackupMap("journal-backup");
+
+        assertTrue(map instanceof PersistentBackingMap);
+        assertFalse(manager.isBackupPartitioned("journal-backup"));
         }
 
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -1300,6 +1300,61 @@ public abstract class AbstractPersistenceManager<PS extends AbstractPersistentSt
                     {
                     unlockWrite();
                     }
+                }
+            }
+
+        /**
+         * Move a batch of extents while holding this store's write gate.
+         * <p>
+         * Unlike key/value mutations, extent moves do not participate in a
+         * caller-supplied transaction token returned from
+         * {@link #begin()} / {@link #begin(com.oracle.coherence.common.base.Collector, Object)}.
+         * This implementation acquires the persistence-write serialization
+         * internally after {@link #ensureReady()} completes, performs each
+         * move, and then ensures each destination extent is registered before
+         * releasing the write lock.
+         * <p>
+         * Callers do not need to hold an open write ticket before invoking
+         * this method. Implementations that strengthen the contract beyond
+         * this manager-level write serialization should document that
+         * explicitly.
+         */
+        @Override
+        public void moveExtents(long[] alOldExtentIds, long[] alNewExtentIds)
+            {
+            if (alOldExtentIds == null || alNewExtentIds == null)
+                {
+                throw new IllegalArgumentException("extent identifier arrays cannot be null");
+                }
+
+            if (alOldExtentIds.length != alNewExtentIds.length)
+                {
+                throw new IllegalArgumentException("extent identifier array lengths must match");
+                }
+
+            ensureReady();
+            lockWrite();
+            try
+                {
+                for (int i = 0; i < alOldExtentIds.length; i++)
+                    {
+                    long    lOldExtentId = alOldExtentIds[i];
+                    long    lNewExtentId = alNewExtentIds[i];
+                    Long    LId          = Long.valueOf(lOldExtentId);
+                    boolean fMove        = f_setExtentIds.contains(LId);
+
+                    if (fMove)
+                        {
+                        moveExtentInternal(lOldExtentId, lNewExtentId);
+                        f_setExtentIds.remove(LId);
+                        }
+
+                    ensureExtentInternal(lNewExtentId);
+                    }
+                }
+            finally
+                {
+                unlockWrite();
                 }
             }
 
@@ -3073,7 +3128,7 @@ public abstract class AbstractPersistenceManager<PS extends AbstractPersistentSt
 
                     validateStoreSealed(store);
 
-                    visitor.setCaches(CachePersistenceHelper.getCacheNames(store));
+                    visitor.setCaches(CachePersistenceHelper.getCacheNamesForActiveRecovery(store));
                     store.iterate(CachePersistenceHelper.instantiatePersistenceVisitor(visitor));
                     }
                 finally

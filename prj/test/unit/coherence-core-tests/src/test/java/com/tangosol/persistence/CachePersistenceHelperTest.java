@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2022, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -154,7 +154,7 @@ public class CachePersistenceHelperTest
 
         try
             {
-            CachePersistenceHelper.validate(m_store, service);
+            CachePersistenceHelper.validateForActiveRecovery(m_store, service);
             fail("Expected validation error did not occur");
             }
         catch (PersistenceException e)
@@ -162,7 +162,7 @@ public class CachePersistenceHelperTest
             }
 
         CachePersistenceHelper.seal(m_store, service, /*oToken*/ null);
-        CachePersistenceHelper.validate(m_store, service);
+        CachePersistenceHelper.validateForActiveRecovery(m_store, service);
         // this method returning without throwing an exception is itself an assertion
         }
 
@@ -181,13 +181,113 @@ public class CachePersistenceHelperTest
         when(cluster.getLocalMember()).thenReturn(member);
 
         CachePersistenceHelper.seal(m_store, service, /*oToken*/ null);
-        assertTrue(CachePersistenceHelper.getCacheNames(m_store).isEmpty());
+        assertTrue(CachePersistenceHelper.getCacheNamesForActiveRecovery(m_store).isEmpty());
 
         LongArray la = new SparseArray();
         la.set(1L, "Test");
 
         CachePersistenceHelper.storeCacheNames(m_store, la);
-        assertEquals(la, CachePersistenceHelper.getCacheNames(m_store));
+        assertEquals(la, CachePersistenceHelper.getCacheNamesForActiveRecovery(m_store));
+        }
+
+    @Test
+    public void testActiveRecoveryValidateRejectsOpenEmptyStore()
+        {
+        PartitionedService service = mockPartitionedService();
+        String sStoreId = "active-empty-validate-store";
+        PersistentStore<ReadBuffer> store = m_manager.open(sStoreId, null);
+        try
+            {
+            assertValidateRejectsMissingMetadata(store, service);
+            }
+        finally
+            {
+            closeAndDeleteStore(sStoreId);
+            }
+        }
+
+    @Test
+    public void testActiveRecoveryGetCacheNamesRejectsOpenEmptyStore()
+        {
+        String sStoreId = "active-empty-caches-store";
+        PersistentStore<ReadBuffer> store = m_manager.open(sStoreId, null);
+        try
+            {
+            assertGetCacheNamesRejectsMissingMetadata(store);
+            }
+        finally
+            {
+            closeAndDeleteStore(sStoreId);
+            }
+        }
+
+    @Test
+    public void testActiveRecoveryUnsealRejectsOpenEmptyStore()
+        {
+        String sStoreId = "active-empty-unseal-store";
+        PersistentStore<ReadBuffer> store = m_manager.open(sStoreId, null);
+        try
+            {
+            assertUnsealRejectsMissingMetadata(store);
+            }
+        finally
+            {
+            closeAndDeleteStore(sStoreId);
+            }
+        }
+
+    @Test
+    public void testSnapshotRecoveryAcceptsOpenEmptyStoreWithSparseMarker()
+        {
+        PartitionedService service = mockPartitionedService();
+        String sStoreId = "snapshot-empty-sparse-store";
+        PersistentStore<ReadBuffer> store = m_manager.open(sStoreId, null);
+        try
+            {
+            assertArrayEquals(new long[0], store.extents());
+
+            CachePersistenceHelper.validateForSnapshotRecovery(store, service, true);
+            assertTrue(CachePersistenceHelper.getCacheNamesForSnapshotRecovery(store, true).isEmpty());
+            CachePersistenceHelper.unsealForSnapshotRecovery(store, true);
+            }
+        finally
+            {
+            closeAndDeleteStore(sStoreId);
+            }
+        }
+
+    @Test
+    public void testSnapshotRecoveryRejectsOpenEmptyStoreWithoutSparseMarker()
+        {
+        PartitionedService service = mockPartitionedService();
+        String sStoreId = "snapshot-empty-non-sparse-store";
+        PersistentStore<ReadBuffer> store = m_manager.open(sStoreId, null);
+        try
+            {
+            assertArrayEquals(new long[0], store.extents());
+            assertValidateForSnapshotRecoveryRejectsMissingMetadata(store, service, false);
+            assertGetCacheNamesForSnapshotRecoveryRejectsMissingMetadata(store, false);
+            assertUnsealForSnapshotRecoveryRejectsMissingMetadata(store, false);
+            }
+        finally
+            {
+            closeAndDeleteStore(sStoreId);
+            }
+        }
+
+    @Test
+    public void testMoveExtentsSkipsMissingMetaExtents()
+        {
+        PersistentStore store = mock(PersistentStore.class);
+
+        when(store.containsExtent(17L)).thenReturn(true);
+        when(store.containsExtent(-17L)).thenReturn(true);
+
+        CachePersistenceHelper.moveExtents(store, 17L, 23L);
+
+        verify(store).moveExtents(new long[] {17L, -17L}, new long[] {23L, -23L});
+        verify(store, times(CachePersistenceHelper.RESERVED_META_EXTENTS + 1)).containsExtent(anyLong());
+        verifyNoMoreInteractions(store);
         }
 
     @Test
@@ -207,6 +307,79 @@ public class CachePersistenceHelperTest
                 visitor.f_mapEntries.get(TEST_KEY_2));
         assertEquals(new SimpleMapEntry(TEST_KEY_3, TEST_VALUE_3),
                 visitor.f_mapEntries.get(TEST_KEY_3));
+        }
+
+    protected PartitionedService mockPartitionedService()
+        {
+        PartitionedService service = mock(PartitionedService.class);
+        ServiceInfo        info    = mock(ServiceInfo.class);
+        Cluster            cluster = mock(Cluster.class);
+        Member             member  = mock(Member.class);
+
+        when(service.getPartitionCount()).thenReturn(257);
+        when(service.getInfo()).thenReturn(info);
+        when(info.getServiceVersion(member)).thenReturn("12.1.3");
+        when(service.getCluster()).thenReturn(cluster);
+        when(cluster.getLocalMember()).thenReturn(member);
+
+        return service;
+        }
+
+    protected void assertValidateRejectsMissingMetadata(PersistentStore<ReadBuffer> store, PartitionedService service)
+        {
+        PersistenceException exception = assertThrows(PersistenceException.class,
+                () -> CachePersistenceHelper.validateForActiveRecovery(store, service));
+
+        assertTrue(exception.getMessage().contains("missing internal extent"));
+        }
+
+    protected void assertGetCacheNamesRejectsMissingMetadata(PersistentStore<ReadBuffer> store)
+        {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> CachePersistenceHelper.getCacheNamesForActiveRecovery(store));
+
+        assertTrue(exception.getMessage().contains("unknown extent identifier"));
+        }
+
+    protected void assertUnsealRejectsMissingMetadata(PersistentStore<ReadBuffer> store)
+        {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> CachePersistenceHelper.unsealForActiveRecovery(store));
+
+        assertTrue(exception.getMessage().contains("unknown extent identifier"));
+        }
+
+    protected void assertValidateForSnapshotRecoveryRejectsMissingMetadata(PersistentStore<ReadBuffer> store,
+            PartitionedService service, boolean fSparseSnapshot)
+        {
+        PersistenceException exception = assertThrows(PersistenceException.class,
+                () -> CachePersistenceHelper.validateForSnapshotRecovery(store, service, fSparseSnapshot));
+
+        assertTrue(exception.getMessage().contains("missing internal extent"));
+        }
+
+    protected void assertGetCacheNamesForSnapshotRecoveryRejectsMissingMetadata(PersistentStore<ReadBuffer> store,
+            boolean fSparseSnapshot)
+        {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> CachePersistenceHelper.getCacheNamesForSnapshotRecovery(store, fSparseSnapshot));
+
+        assertTrue(exception.getMessage().contains("unknown extent identifier"));
+        }
+
+    protected void assertUnsealForSnapshotRecoveryRejectsMissingMetadata(PersistentStore<ReadBuffer> store,
+            boolean fSparseSnapshot)
+        {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> CachePersistenceHelper.unsealForSnapshotRecovery(store, fSparseSnapshot));
+
+        assertTrue(exception.getMessage().contains("unknown extent identifier"));
+        }
+
+    protected void closeAndDeleteStore(String sStoreId)
+        {
+        m_manager.close(sStoreId);
+        m_manager.delete(sStoreId, false);
         }
 
     @Test

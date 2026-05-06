@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2024, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -452,6 +452,10 @@ public abstract class AbstractSnapshotArchiver
             props.setProperty(CachePersistenceHelper.META_STORAGE_FORMAT, String.valueOf(abstractMgr.getStorageFormat()));
             props.setProperty(CachePersistenceHelper.META_PARTITION_COUNT, String.valueOf(CachePersistenceHelper.getPartitionCount(store)));
             props.setProperty(CachePersistenceHelper.META_SERVICE_VERSION, String.valueOf(CachePersistenceHelper.getServiceVersion(store)));
+            if ("JOURNAL".equals(abstractMgr.getStorageFormat()))
+                {
+                props.setProperty(CachePersistenceHelper.META_SPARSE_SNAPSHOT, Boolean.TRUE.toString());
+                }
 
             CachePersistenceHelper.writeMetadata(fileDir, props);
             }
@@ -461,6 +465,25 @@ public abstract class AbstractSnapshotArchiver
                 {
                 mgr.close(sStore);
                 }
+            }
+        }
+
+    /**
+     * Return {@code true} if the specified archived snapshot is marked as sparse.
+     *
+     * @param sSnapshot  the archived snapshot to inspect
+     *
+     * @return {@code true} if the archived snapshot is sparse
+     */
+    public boolean isSnapshotSparse(String sSnapshot)
+        {
+        try
+            {
+            return CachePersistenceHelper.isSnapshotSparse(getMetadata(sSnapshot));
+            }
+        catch (IOException e)
+            {
+            throw Base.ensureRuntimeException(e, "Unable to read metadata for archived snapshot " + sSnapshot);
             }
         }
 
@@ -572,7 +595,7 @@ public abstract class AbstractSnapshotArchiver
 
                         if (fCollectStats)
                             {
-                            visitor.setCaches(CachePersistenceHelper.getCacheNames(store));
+                            visitor.setCaches(CachePersistenceHelper.getCacheNamesForActiveRecovery(store));
                             store.iterate(CachePersistenceHelper.instantiatePersistenceVisitor(visitor));
                             }
 

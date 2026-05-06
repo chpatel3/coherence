@@ -53,6 +53,17 @@
     </dependency>
 
     <dependency>
+      <groupId>${coherence.group.id}</groupId>
+      <artifactId>coherence-core-components</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>com.sleepycat</groupId>
+      <artifactId>je</artifactId>
+    </dependency>
+
+    <dependency>
       <groupId>org.openjdk.jmh</groupId>
       <artifactId>jmh-core</artifactId>
       <version>${jmh.version}</version>

@@ -1,0 +1,998 @@
+///////////////////////////////////////////////////////////////////////////////
+    Copyright (c) 2000, 2026, Oracle and/or its affiliates.
+
+    Licensed under the Universal Permissive License v 1.0 as shown at
+    https://oss.oracle.com/licenses/upl.
+///////////////////////////////////////////////////////////////////////////////
+= Unified Persistence
+:toc: left
+:toclevels: 4
+:sectnums:
+
+This document describes Unified Persistence for Coherence: what it is, how it
+works, how to configure it, and how to migrate from Berkeley DB (BDB)
+persistence.
+
+It is a user-facing guide intended for developers and operators configuring
+Coherence services.
+
+== Overview
+
+Unified Persistence is a new journal-based persistence engine for Coherence. It
+replaces the Berkeley DB dependency with a storage engine purpose-built for
+Coherence's access patterns:
+
+* *Writes are append-only.* Every mutation appends a new entry to a
+  per-partition journal file. There are no in-place updates.
+* *Reads are index-driven.* An in-memory radix tree maps each cache key to a
+  compact _ticket_ that identifies the exact file and byte offset of the
+  entry. Point reads are single positional I/O operations, with STORE header
+  metadata cached lazily per live ticket after first access.
+* *Recovery is sequential.* On restart, the engine loads a checkpoint (a
+  serialized snapshot of the radix tree) and replays only the journal entries
+  written after that checkpoint. No random-access index traversal is needed.
+* *Snapshots are file-oriented.* Because completed journal files are immutable,
+  snapshots can hard-link them instead of copying, making snapshot creation
+  nearly instantaneous on filesystems that support hard links.
+
+=== Three Modes of Operation
+
+Unified Persistence supports three modes. All three use the same underlying
+journal engine, the same on-disk format, and the same persistence lifecycle
+(recovery, snapshots, archival). The mode is determined by where the journal
+store is wired into the partitioned service: behind the primary backing map
+(Mode 1), as the primary backing map (Mode 2), or as the backup backing map
+(Mode 3).
+
+==== Mode 1: Side-Channel Persistence
+
+Journal persistence acts as a drop-in replacement for BDB through Coherence's
+existing persistence side-channel. The backing map can be any supported type
+(`local-scheme`, `external-scheme`, etc.). Mutations flow through two paths:
+one write to the in-memory backing map, and one write to the journal
+persistence store.
+
+This mode is the most direct replacement for existing BDB deployments. It
+requires changing only the persistence environment configuration — no changes
+to the backing map scheme.
+
+==== Mode 2: Unified Backing Map (`journal-scheme`)
+
+The backing map itself is journal-backed. The `JournalBackingMap` reads from
+and writes directly to the partition's `JournalPersistentStore`. Because the
+backing map and the persistence store are the same thing, there is only *one*
+durable write per mutation — the persistence side-channel is automatically
+bypassed.
+
+This mode provides the cleanest storage model: the journal is the sole
+authority for cache data, and there is no separate in-memory copy.
+
+==== Mode 3: Journal Backup Map (`<backup-storage><type>journal</type>`)
+
+The *backup* backing map is journal-backed. Each member's backup partitions
+are stored in their own journal extents under the persistence environment's
+backup directory. Backup mutations flow through a single durable write to the
+backup journal store, with no separate in-memory backup map and no second
+copy through the persistence side-channel.
+
+Mode 3 is the same `JournalBackingMap` abstraction as Mode 2, rebound to the
+backup persistent store instead of the active store. It follows the same
+wiring pattern as the existing `<backup-storage><type>flashjournal</type>`
+and `<type>ramjournal</type>` options for Elastic Data, but uses unified
+persistence as the durability backend.
+
+This mode is most useful when you want symmetric durability between primary
+and backup partitions, for example to recover a partition from its backup
+journal on full-cluster restart when its active store is unavailable. It
+pairs naturally with Mode 2: when the primary backing map is
+`<journal-scheme/>` and no explicit `<backup-storage>` is configured, the
+backup is automatically wired as a journal backup map.
+
+== Architecture
+
+=== Per-Partition Journals
+
+Each partition in a distributed service owns its own set of journal files.
+Journal files live in a partition-specific directory under the configured active
+storage directory:
+
+[source]
+----
+{activeDir}/{clusterName}/{serviceName}/
+  └── partitions/
+      ├── {GUID-partition-0}/
+      │   ├── extents/
+      │   │   ├── 0000000000000001/     ← extent (cache) directory
+      │   │   │   ├── journal-000000.coh
+      │   │   │   ├── journal-000001.coh
+      │   │   │   ├── checkpoint.coh
+      │   │   │   └── ...
+      │   │   └── 0000000000000002/     ← another cache's extent
+      │   │       └── ...
+      │   └── meta.properties
+      ├── {GUID-partition-1}/
+      │   └── ...
+      └── ...
+----
+
+Each extent directory corresponds to a single cache within the partition. The
+journal files within an extent are append-only and transition through a defined
+lifecycle: `APPENDING` → `FULL` → `EVACUATING` → `GARBAGE` → `DISCARDED`.
+
+This per-partition, per-extent isolation provides:
+
+* *Clean partition transfers* — transferring a partition out means deleting its
+  directory. No scattered garbage, no compaction storm.
+* *Independent snapshots* — snapshot creation hard-links immutable `FULL` files.
+* *Fault isolation* — corruption in one partition's files does not affect
+  other partitions.
+
+=== Checkpointing
+
+The engine periodically writes _checkpoints_ — serialized snapshots of the
+in-memory radix tree for each extent. A checkpoint records the journal
+file number and byte offset at the time it was taken. On recovery, the
+checkpoint is loaded first, and only journal entries after the checkpoint
+position need to be replayed.
+
+Checkpoints are triggered when a configurable number of bytes have been written
+since the last checkpoint (default: 64 MB). They can also be triggered by an
+adaptive per-extent write-count heuristic that starts aggressively and backs
+off when recent checkpoint duration exceeds the configured budget.
+
+Important semantics:
+
+* Checkpoints are a recovery optimization, not the durability boundary.
+* A synchronous checkpoint is written on *graceful shutdown* (when an extent is
+  released), ensuring minimal replay work on the next startup.
+* A synchronous checkpoint is written on *startup* immediately after an extent's
+  journal state is recovered. Because extent open runs on the persistence thread
+  before cluster join and service startup complete, this checkpoint executes in
+  parallel with the rest of the startup sequence — by the time recovery is
+  triggered, the checkpoint is already in place.
+* Periodic checkpoints during normal operation are written asynchronously, so
+  mutation threads only pay the snapshot-capture cost.
+* Setting `coherence.persistence.journal.checkpoint.threshold=0` disables the
+  periodic byte-threshold trigger.
+
+=== Compaction
+
+As entries are updated or deleted, older journal files accumulate dead space.
+A background compactor evacuates live entries from low-utilization files to the
+current appending file, then reclaims the old files. Compaction runs
+per-partition using a shared thread pool and does not interfere with other
+partitions.
+
+Tombstones (deletion markers) are preserved until a checkpoint is written that
+reflects the deletion, after which the compactor can safely drop them.
+
+=== Recovery
+
+On startup, each partition recovers independently:
+
+1. Load the checkpoint (if present) to populate the radix tree.
+2. Replay journal entries written after the checkpoint.
+3. Validate entry integrity using per-entry CRC32 checksums.
+
+If no checkpoint exists, recovery scans the entire journal from the beginning.
+Corrupted or truncated entries at the tail of the journal (from a crash) are
+detected by CRC validation and safely skipped.
+
+Recovery is optimized for sequential I/O:
+
+* *Buffered journal scan.* Replay uses a 256 KiB read buffer, parsing entries
+  directly from the buffer and refilling only when needed. This minimizes I/O
+  round trips during sequential replay.
+* *Per-file sorted value resolution.* When recovering from a checkpoint, entries
+  that need full value reads from the journal are grouped by file and sorted by
+  offset within each file. A sliding-window buffered reader prefetches data in
+  256 KiB blocks, achieving near-sequential I/O even for scattered ticket
+  references.
+
+== Configuration
+
+Unified Persistence is configured in two places: operational configuration
+(the persistence environment) and cache configuration (the backing map and
+service).
+
+=== Operational Configuration: Persistence Environment
+
+A journal persistence environment is defined in the operational configuration
+by setting `persistence-type` to `journal`.
+
+[source,xml]
+----
+<coherence>
+  <cluster-config>
+    <persistence-environments>
+      <persistence-environment id="journal-active">
+        <persistence-mode>active</persistence-mode>
+        <persistence-type>journal</persistence-type>
+        <active-directory>/var/coherence/journal/active</active-directory>
+        <backup-directory>/var/coherence/journal/backup</backup-directory>
+        <snapshot-directory>/var/coherence/journal/snapshot</snapshot-directory>
+        <trash-directory>/var/coherence/journal/trash</trash-directory>
+      </persistence-environment>
+    </persistence-environments>
+  </cluster-config>
+</coherence>
+----
+
+==== Environment Properties
+
+[cols="2,4"]
+|===
+| Element | Description
+
+| `persistence-mode`
+| Standard Coherence persistence mode: `active`, `active-backup`,
+  `active-async`, or `on-demand`. The semantics are unchanged from BDB
+  persistence.
+
+| `persistence-type`
+| Selects the persistence implementation. Set to `journal` for Unified
+  Persistence. Defaults to `bdb` for backward compatibility.
+
+| `active-directory`
+| Root directory for active persistent stores. Each service creates a
+  subdirectory containing per-partition journal data.
+
+| `backup-directory`
+| Directory for backup persistent stores when using `active-backup` mode.
+
+| `snapshot-directory`
+| Directory for snapshot data. Snapshots are created as subdirectories
+  containing hard-linked (or copied) journal files.
+
+| `trash-directory`
+| Directory where quarantined or suspect persistent data is moved. Used
+  during BDB-to-journal migration to safely set aside legacy BDB files
+  found in the active directory.
+
+| `migration-source-directory`
+| Optional. Points to a BDB snapshot directory to import when journal
+  persistence starts for the first time. See <<Migrating from Berkeley DB>>.
+|===
+
+All directory properties accept `system-property` attributes for externalized
+configuration:
+
+[source,xml]
+----
+<persistence-environment id="journal-active">
+  <persistence-mode system-property="coherence.persistence.mode">active</persistence-mode>
+  <persistence-type>journal</persistence-type>
+  <active-directory system-property="coherence.persistence.active.dir">
+    /var/coherence/journal/active
+  </active-directory>
+  <backup-directory system-property="coherence.persistence.backup.dir">
+    /var/coherence/journal/backup
+  </backup-directory>
+  <snapshot-directory system-property="coherence.persistence.snapshot.dir">
+    /var/coherence/journal/snapshot
+  </snapshot-directory>
+  <trash-directory system-property="coherence.persistence.trash.dir">
+    /var/coherence/journal/trash
+  </trash-directory>
+  <migration-source-directory system-property="coherence.persistence.migration.dir"/>
+</persistence-environment>
+----
+
+Journal-specific tuning is exposed through system properties. Memory-size
+properties accept human-readable suffixes (e.g. `128M`, `64MB`, `1G`).
+
+==== Journal Engine Properties
+
+* `coherence.persistence.journal.max.file.size`
+  Default `128MB`. Maximum journal file size per extent. The addressable
+  maximum is ~4 GiB (constrained by the ticket encoding), but the default is
+  tuned for reasonable compaction granularity.
+* `coherence.persistence.journal.compaction.min.load.factor`
+  Default `0.5`. Files whose live-byte ratio falls below this threshold become
+  compaction candidates. Lower values delay compaction; higher values trigger
+  it sooner.
+
+==== Checkpoint Properties
+
+* `coherence.persistence.journal.checkpoint.threshold`
+  Default `64MB`. Byte threshold for automatic checkpoints. A checkpoint is
+  triggered after this many bytes have been written to an extent since the
+  last completed checkpoint. Set to `0` to disable the byte-threshold trigger
+  and rely solely on the adaptive write-count trigger.
+
+==== Adaptive Checkpoint Properties
+
+The adaptive checkpoint controller starts with an aggressive write-count
+trigger and backs off (doubles the trigger) when recent checkpoint duration
+exceeds a configured budget. This auto-tunes checkpoint frequency per extent
+based on actual workload characteristics.
+
+* `coherence.persistence.journal.checkpoint.adaptive.initial.writes`
+  Default `1000`. Initial number of writes before triggering a write-count
+  checkpoint. Set to `0` to disable the adaptive write-count trigger entirely.
+* `coherence.persistence.journal.checkpoint.adaptive.min.writes`
+  Default `1000`. Lower bound — the adaptive trigger never drops below this.
+* `coherence.persistence.journal.checkpoint.adaptive.max.writes`
+  Default `1000000`. Upper bound — the adaptive trigger never exceeds this.
+* `coherence.persistence.journal.checkpoint.adaptive.target.millis`
+  Default `2.0`. Per-extent checkpoint duration budget in milliseconds. If the
+  rolling median of recent checkpoint durations exceeds this, the write-count
+  trigger doubles.
+* `coherence.persistence.journal.checkpoint.adaptive.warmup.count`
+  Default `4`. Number of initial checkpoint samples to discard before the
+  adaptive algorithm begins adjusting. Allows the system to warm up before
+  making tuning decisions.
+
+=== Cache Configuration
+
+The distributed scheme references the persistence environment through the
+standard `<persistence>` element. The mode is determined by the backing map
+scheme (Mode 1 vs. Mode 2) and the optional `<backup-storage>` element
+(Mode 3).
+
+==== Mode 1: Side-Channel Persistence (Any Backing Map)
+
+Use any standard backing map scheme. Journal persistence handles durability
+through the persistence side-channel:
+
+[source,xml]
+----
+<distributed-scheme>
+  <scheme-name>orders-distributed</scheme-name>
+  <service-name>OrdersService</service-name>
+  <backing-map-scheme>
+    <local-scheme/>
+  </backing-map-scheme>
+  <persistence>
+    <environment>journal-active</environment>
+  </persistence>
+  <autostart>true</autostart>
+</distributed-scheme>
+----
+
+Each mutation results in two writes: one to the in-memory backing map, one to
+the journal persistent store. On recovery, the journal store is replayed and
+entries are loaded into the backing map.
+
+==== Mode 2: Unified Backing Map (`journal-scheme`)
+
+Use `<journal-scheme/>` as the backing map. The journal store serves as both
+the backing map and the persistent store:
+
+[source,xml]
+----
+<distributed-scheme>
+  <scheme-name>accounts-distributed</scheme-name>
+  <service-name>AccountsService</service-name>
+  <backing-map-scheme>
+    <journal-scheme/>
+  </backing-map-scheme>
+  <persistence>
+    <environment>journal-active</environment>
+  </persistence>
+  <autostart>true</autostart>
+</distributed-scheme>
+----
+
+Each mutation results in a single durable write to the journal. Reads are
+served directly from the journal's radix tree index. The persistence
+side-channel is automatically bypassed because the backing map is itself
+persistent.
+
+IMPORTANT: `<journal-scheme/>` *requires* the service to be configured with a
+journal persistence environment (`persistence-type=journal`). Using
+`journal-scheme` without a journal persistence environment, or with a BDB
+persistence environment, will cause the service to fail on startup.
+
+===== Minimum Migration Delta to `journal-scheme`
+
+If you already have a persistent `distributed-scheme`, the minimum
+configuration change to move from side-channel persistence to a unified
+journal-backed cache is:
+
+1. change the backing-map scheme from your existing backing map (for example,
+   `<local-scheme/>`) to `<journal-scheme/>`
+2. point the `<persistence><environment>...</environment></persistence>`
+   reference at a journal persistence environment
+3. change that persistence environment's `persistence-type` to `journal`
+
+For example, this existing configuration:
+
+[source,xml]
+----
+<distributed-scheme>
+  <scheme-name>accounts-distributed</scheme-name>
+  <service-name>AccountsService</service-name>
+  <backing-map-scheme>
+    <local-scheme/>
+  </backing-map-scheme>
+  <persistence>
+    <environment>bdb-active</environment>
+  </persistence>
+  <autostart>true</autostart>
+</distributed-scheme>
+----
+
+becomes:
+
+[source,xml]
+----
+<distributed-scheme>
+  <scheme-name>accounts-distributed</scheme-name>
+  <service-name>AccountsService</service-name>
+  <backing-map-scheme>
+    <journal-scheme/>
+  </backing-map-scheme>
+  <persistence>
+    <environment>journal-active</environment>
+  </persistence>
+  <autostart>true</autostart>
+</distributed-scheme>
+----
+
+and the referenced persistence environment changes from `persistence-type=bdb`
+to `persistence-type=journal`. The service name, cache names, backup count,
+and other distributed-scheme settings do not need to change just to adopt
+`journal-scheme`.
+
+==== Mode 3: Journal Backup Map (`<backup-storage><type>journal</type>`)
+
+Add an explicit `<backup-storage>` element with `<type>journal</type>` to
+make the backup backing map journal-backed. The backup partitions are stored
+under the persistence environment's `<backup-directory>`:
+
+[source,xml]
+----
+<distributed-scheme>
+  <scheme-name>orders-distributed</scheme-name>
+  <service-name>OrdersService</service-name>
+  <backing-map-scheme>
+    <local-scheme/>           <!-- or <journal-scheme/> -->
+  </backing-map-scheme>
+  <persistence>
+    <environment>journal-active-backup</environment>
+  </persistence>
+  <backup-storage>
+    <type>journal</type>
+  </backup-storage>
+  <autostart>true</autostart>
+</distributed-scheme>
+----
+
+The persistence environment must use a mode that durably persists backup
+stores — typically `<persistence-mode>active-backup</persistence-mode>` — and
+must define a `<backup-directory>`.
+
+IMPORTANT: `<backup-storage><type>journal</type>` requires the service to be
+configured with a journal persistence environment. Like `<journal-scheme/>`,
+journal backup maps are supported when the cache configuration is loaded
+through the standard cache factory; the legacy `DefaultConfigurableCacheFactory`
+does not understand journal backup storage.
+
+===== Auto-pairing with `<journal-scheme/>`
+
+When the primary backing map is `<journal-scheme/>` and no `<backup-storage>`
+is specified, the backup is automatically configured as a journal backup map.
+This mirrors how `<journal-scheme/>` already auto-pairs with `flashjournal`
+backup storage when used without unified persistence. The two configurations
+below are equivalent:
+
+[source,xml]
+----
+<!-- Explicit -->
+<distributed-scheme>
+  <backing-map-scheme><journal-scheme/></backing-map-scheme>
+  <persistence><environment>journal-active-backup</environment></persistence>
+  <backup-storage>
+    <type>journal</type>
+  </backup-storage>
+</distributed-scheme>
+
+<!-- Auto-paired (equivalent) -->
+<distributed-scheme>
+  <backing-map-scheme><journal-scheme/></backing-map-scheme>
+  <persistence><environment>journal-active-backup</environment></persistence>
+</distributed-scheme>
+----
+
+You can still override the auto-pair by specifying a different
+`<backup-storage>` (for example, `<type>on-heap</type>`) explicitly.
+
+===== Order of `<persistence>` and `<backup-storage>`
+
+The Coherence cache-configuration schema requires `<persistence>` to appear
+before `<backup-storage>` inside `<distributed-scheme>`. The cache factory
+will fail to parse the configuration otherwise.
+
+== Choosing Between the Modes
+
+[cols="1,1,3"]
+|===
+| Mode | Configuration | When to Use
+
+| Side-channel (Mode 1)
+| Any backing map (`local-scheme`, `external-scheme`, etc.) + journal
+  persistence environment
+| You want the simplest migration path from BDB. Keep your existing backing
+  map scheme and change only the persistence environment.
+
+| Unified primary (Mode 2)
+| `journal-scheme` primary backing map + journal persistence environment
+| You want a single storage layer for the primary partition with one write
+  per mutation. Best for new persistent cache designs or when migrating from
+  Elastic Data + BDB.
+
+| Journal backup (Mode 3)
+| `<backup-storage><type>journal</type>` (explicit or auto-paired with
+  `journal-scheme`) + `active-backup` journal persistence environment
+| You want symmetric durability between primary and backup, want to recover
+  partitions from their backup journals on full-cluster restart when the
+  active store is unavailable, or want to eliminate the second durable write
+  through the persistence side-channel for backup partitions.
+|===
+
+All three modes support the same persistence lifecycle: recovery, snapshots,
+archival, and all standard persistence modes (`active`, `active-backup`,
+`active-async`, `on-demand`). Mode 3 specifically requires a mode that
+durably persists backup stores (typically `active-backup`).
+
+Modes 2 and 3 are independent and can be combined: a `<journal-scheme/>`
+primary with a `<type>journal</type>` backup gives a fully unified storage
+model where every cache mutation results in exactly one durable write per
+copy (one for the primary, one for the backup). This is also what you get by
+default when `<journal-scheme/>` is used without an explicit
+`<backup-storage>` element.
+
+== Persistence Modes
+
+Unified Persistence supports all standard Coherence persistence modes. The mode
+is set on the persistence environment:
+
+[source,xml]
+----
+<!-- Active persistence with backup -->
+<persistence-environment id="journal-active-backup">
+  <persistence-mode>active-backup</persistence-mode>
+  <persistence-type>journal</persistence-type>
+  <active-directory>/var/coherence/journal/active</active-directory>
+  <backup-directory>/var/coherence/journal/backup</backup-directory>
+  <snapshot-directory>/var/coherence/journal/snapshot</snapshot-directory>
+  <trash-directory>/var/coherence/journal/trash</trash-directory>
+</persistence-environment>
+
+<!-- On-demand persistence -->
+<persistence-environment id="journal-on-demand">
+  <persistence-mode>on-demand</persistence-mode>
+  <persistence-type>journal</persistence-type>
+  <active-directory>/var/coherence/journal/active</active-directory>
+  <snapshot-directory>/var/coherence/journal/snapshot</snapshot-directory>
+  <trash-directory>/var/coherence/journal/trash</trash-directory>
+</persistence-environment>
+----
+
+The behavior of each mode is identical to existing Coherence persistence — only
+the underlying storage engine changes.
+
+== Snapshots
+
+Unified Persistence supports Coherence snapshot operations through the standard
+persistence lifecycle. No special configuration is required beyond having a
+journal persistence environment with a `snapshot-directory`.
+
+When a snapshot is created:
+
+1. The current appending journal file for each extent is force-rotated to
+   `FULL` status, ensuring all files included in the snapshot are immutable.
+2. A checkpoint is written for each extent, capturing the current radix tree
+   state.
+3. The `FULL` journal files are hard-linked into the snapshot directory. On
+   filesystems that support hard links, this is nearly instantaneous and
+   consumes no additional disk space. On filesystems without hard-link
+   support, files are copied instead.
+4. Checkpoint and metadata files are copied to the snapshot directory.
+
+Snapshot recovery follows the same process as active recovery: load the
+checkpoint, replay post-checkpoint journal entries.
+
+Snapshots can be created and recovered using the standard Coherence snapshot
+management tools and APIs.
+
+== Map Events and Observability
+
+All three modes support standard Coherence map events:
+
+* Inserts generate `INSERT` events
+* Updates generate `UPDATE` events
+* Removals generate `DELETE` events
+
+`MapListener` usage works without changes. In `journal-scheme` mode,
+the backing map is wrapped in a `WrapperObservableMap` that uses the return
+values of `put()` and `remove()` to determine the correct event type.
+
+No application code changes are required for cache event handling.
+
+== Single-Write Behavior
+
+In side-channel mode (Mode 1), the standard two-write flow applies: the
+backing map handles in-memory state, and the persistence side-channel records
+the durable copy to the journal store.
+
+In `journal-scheme` mode (Mode 2), the primary backing map itself performs
+the durable mutation. Coherence detects that the backing map implements the
+`PersistentBackingMap` marker interface and automatically skips the
+persistence side-channel for that cache's primary partitions. Each mutation
+is written to the primary journal exactly once.
+
+The same marker is used to skip the side-channel for backup partitions in
+journal backup mode (Mode 3). When the backup map implements
+`PersistentBackingMap`, the backup partition's mutation is written to the
+backup journal directly, with no second copy through the side-channel.
+
+When Mode 2 and Mode 3 are combined, every cache mutation results in exactly
+one durable write per copy: one to the primary journal store, one to the
+backup journal store.
+
+== Extent Isolation
+
+In `journal-scheme` mode, each cache within a service is assigned a unique
+_extent ID_ (derived from the cache's internal cache ID). Extents provide
+logical isolation within each partition store:
+
+* Each cache has its own journal files and radix tree within the partition.
+* Two different caches can store the same user key in the same partition
+  without collision — extent separation is part of the store model.
+* Operations like `clear()` truncate only the targeted extent.
+* Recovery and snapshots operate per-extent within each partition.
+
+This means multiple `journal-scheme` caches can share the same distributed
+service and persistence environment without interfering with each other.
+
+== Migrating from Berkeley DB
+
+Unified Persistence supports two migration paths from BDB persistence:
+
+* *Explicit import* from a BDB snapshot (controlled cut-over)
+* *Rolling restart* from BDB to journal persistence (gradual transition)
+
+=== Option 1: Import from a BDB Snapshot
+
+This is the recommended path when you want a controlled, one-time switch from
+an existing BDB-persistent service.
+
+==== Procedure
+
+1. *Take a BDB snapshot* while the cluster is still running with BDB
+   persistence, using the standard Coherence snapshot mechanism.
+
+2. *Stop the cluster.*
+
+3. *Configure journal persistence* with `migration-source-directory` pointing
+   to the BDB snapshot:
++
+[source,xml]
+----
+<persistence-environment id="journal-active">
+  <persistence-mode>active</persistence-mode>
+  <persistence-type>journal</persistence-type>
+  <active-directory>/var/coherence/journal/active</active-directory>
+  <backup-directory>/var/coherence/journal/backup</backup-directory>
+  <snapshot-directory>/var/coherence/journal/snapshot</snapshot-directory>
+  <trash-directory>/var/coherence/journal/trash</trash-directory>
+  <migration-source-directory>
+    /var/coherence/bdb/snapshot/my-snapshot
+  </migration-source-directory>
+</persistence-environment>
+----
+
+4. *Update the cache configuration* to reference the journal environment:
++
+[source,xml]
+----
+<distributed-scheme>
+  <scheme-name>orders-distributed</scheme-name>
+  <service-name>OrdersService</service-name>
+  <backing-map-scheme>
+    <local-scheme/>           <!-- or <journal-scheme/> -->
+  </backing-map-scheme>
+  <persistence>
+    <environment>journal-active</environment>
+  </persistence>
+  <autostart>true</autostart>
+</distributed-scheme>
+----
+
+5. *Start the cluster.* On first startup:
+   * The journal persistence environment opens.
+   * The configured BDB snapshot is opened as a read-only source.
+   * All data is imported into journal persistence.
+   * A `migration.properties` file is written to track completion status.
+   * Subsequent restarts skip the import automatically.
+
+The original BDB snapshot is left intact and can serve as a rollback point.
+
+==== Operational Notes
+
+* `migration-source-directory` is intended for initial import only. Remove it
+  from the configuration after successful migration if desired.
+* If legacy BDB active files are found in the journal active directory, they
+  are automatically quarantined to the trash directory before journal
+  persistence opens.
+* If the migration is interrupted (crash during import), the next startup
+  detects the incomplete migration and re-runs the import from the BDB
+  snapshot.
+
+=== Option 2: Rolling Restart from BDB to Journal Persistence
+
+Rolling restart allows you to transition a running service from BDB to journal
+persistence without shutting down the entire cluster.
+
+==== How It Works
+
+1. Start with a healthy cluster running BDB persistence.
+2. Restart members one at a time, changing their persistence environment from
+   `bdb` to `journal` (for example, via a system property override).
+3. As each restarted member joins with journal persistence, partitions
+   transferred to it are persisted into newly created journal stores.
+4. After all members have been restarted, the cluster runs entirely on journal
+   persistence.
+5. Optionally perform a full cluster restart to confirm recovery from the newly
+   created journal stores.
+
+==== Example Configuration
+
+Use a system property to select the persistence environment per member:
+
+[source,xml]
+----
+<distributed-scheme>
+  <scheme-name>rolling-persistence</scheme-name>
+  <service-name>DistributedCachePersistence</service-name>
+  <backup-count>1</backup-count>
+  <backing-map-scheme>
+    <local-scheme/>
+  </backing-map-scheme>
+  <persistence>
+    <environment system-property="test.persistent-environment">
+      bdb-active
+    </environment>
+  </persistence>
+  <partitioned-quorum-policy-scheme>
+    <recover-quorum>2</recover-quorum>
+  </partitioned-quorum-policy-scheme>
+  <autostart>true</autostart>
+</distributed-scheme>
+----
+
+Members being restarted override the environment:
+
+[source,bash]
+----
+-Dtest.persistent-environment=journal-active
+----
+
+==== Important Behavior
+
+* During the rolling migration, BDB and journal members can temporarily coexist
+  in the same partitioned service. This compatibility is intentionally narrow
+  and exists only to support BDB-to-journal turnover.
+* Partition transfers use the standard network path. The receiving journal
+  member creates new persistent journal state from the transferred partition
+  data.
+* After the rolling restart completes, a full cluster restart confirms that
+  all journal stores recover correctly.
+
+== Operational Recommendations
+
+=== Choosing a Mode
+
+* If you are migrating from BDB and want the least disruptive path, start with
+  *side-channel mode* (Mode 1). Keep your existing backing map scheme and
+  change only the persistence environment type to `journal`.
+* If you are designing a new persistent cache, or migrating from Elastic Data
+  with BDB persistence, use *`journal-scheme` mode* (Mode 2) for a single
+  storage layer with one write per mutation on the primary partition.
+* If you also want backup partitions to be durably persisted through the
+  journal — for symmetric durability, full-cluster restart from backup
+  stores, or to eliminate the second durable write through the persistence
+  side-channel for backup partitions — add *journal backup map mode* (Mode 3)
+  via `<backup-storage><type>journal</type>` and an `active-backup` journal
+  persistence environment. When pairing Mode 3 with Mode 2, the
+  `<backup-storage>` element can be omitted: `<journal-scheme/>` auto-pairs
+  with a journal backup.
+
+=== Directory Layout
+
+* Use dedicated storage volumes for the active and snapshot directories. The
+  journal engine produces sequential I/O patterns that benefit from dedicated
+  storage.
+* Avoid placing the active and backup directories on the same physical device.
+* Ensure the trash directory has enough space to hold quarantined data during
+  migration.
+
+=== Monitoring
+
+* The journal persistence MBean is the primary operator-facing monitoring
+  surface. It is registered as
+  `Coherence:type=Persistence,subType=Journal,service={ServiceName},responsibility=PersistenceCoordinator,nodeId={N}`.
+  It exposes:
+** `OpenExtentCount`: the total number of currently open journal extents across
+   the active and backup journal persistence managers for the service.
+** `CompactionProgress`: a formatted summary of current compaction state,
+   including an `active{...}, backup{...}` breakdown when both journal managers
+   are present.
+** `LastRecoverySummary`: the most recent journal recovery summary for the
+   service, tagged with the journal manager that produced it, or an empty
+   string if no recovery has been recorded.
+* The `com.tangosol.persistence.journal.JournalRecovery` JFR event is the
+  developer and profiler surface for recovery timing. Each event records one of
+  four `phase` values: `checkpoint-load`, `journal-scan`, `journal-replay`, or
+  `total`. `checkpointBytes` contains the real checkpoint byte count on
+  `checkpoint-load` when a checkpoint was loaded; phases where checkpoint bytes
+  are not applicable report `-1`.
+* `coherence.persistence.recovery.timing=true` continues to emit the existing
+  `Logger.finer` recovery summary as a one-release compatibility bridge.
+  Operators should prefer the journal persistence MBean and JFR event for new
+  monitoring and profiling workflows. This property is not deprecated or
+  removed in this release.
+* Adaptive checkpoint trigger changes are logged when the per-extent write
+  trigger is adjusted.
+* Compaction activity is logged as journal files are evacuated and reclaimed.
+* Standard Coherence persistence MBeans continue to work with journal
+  persistence.
+
+== Performance Tuning
+
+=== Write Path
+
+When a persistence transaction touches multiple keys in the same extent,
+operations are automatically batched: small journal entries are coalesced into
+a single contiguous write, and old tickets are released in batch under one lock
+acquisition. This reduces I/O round trips and lock contention for multi-key
+transactions without any configuration.
+
+=== Checkpoint Frequency
+
+Checkpoint frequency controls the trade-off between background work and
+recovery time. More frequent checkpoints mean shorter recovery (less journal
+to replay) but more background I/O during normal operations.
+
+Checkpoints are a recovery optimization only. Durability is established when
+the journal append completes under the service's configured persistence mode;
+changing checkpoint frequency never changes whether committed data survives a
+restart.
+
+* For *churn-heavy workloads* (small live data set, frequent updates), the
+  adaptive checkpoint controller checkpoints aggressively because checkpoint
+  cost is low relative to recovery savings.
+* For *append-heavy workloads* (growing data set, few updates), the controller
+  backs off automatically as checkpoint duration increases.
+* Reduce `checkpoint.adaptive.target.millis` to keep checkpoints more frequent
+  (at the cost of slightly more background work).
+* The byte-threshold trigger (`checkpoint.threshold`) acts as a backstop for
+  large writes. Whichever trigger fires first wins.
+
+NOTE: The adaptive algorithm only backs off (increases the trigger). Once the
+trigger has been raised due to transient I/O pressure, it remains elevated
+until the extent is closed and reopened (e.g. at restart). On restart, a fresh
+checkpoint is written during extent open, and the adaptive trigger resets to
+its initial value. This is by design — it prevents oscillation during a
+session while allowing a clean slate on restart.
+
+=== Journal File Size
+
+The `max.file.size` parameter controls journal file granularity:
+
+* Larger files reduce file count and filesystem overhead but increase
+  compaction cost per file.
+* Smaller files allow more granular whole-file reclamation after checkpoints
+  and lower per-compaction latency.
+* The default (128 MB) is suitable for most workloads. Increase for very
+  high-throughput services where file count would otherwise be excessive.
+
+=== Compaction Load Factor
+
+The `compaction.min.load.factor` determines when journal files become
+compaction candidates:
+
+* Lower values (e.g. `0.3`) delay compaction, tolerating more dead space in
+  exchange for less background I/O.
+* Higher values (e.g. `0.7`) trigger compaction sooner, keeping disk usage
+  tighter at the cost of more I/O.
+* The default (`0.5`) is a reasonable balance for most workloads.
+
+== Troubleshooting
+
+=== Verifying Journal Persistence is Active
+
+On startup, the journal persistence engine logs recovery information:
+
+* Look for log messages mentioning `JournalPersistenceManager` and the
+  configured active directory path.
+* Verify the expected directory structure is created under the active
+  directory: `{clusterName}/{serviceName}/partitions/{GUID}/extents/...`
+* Query the journal persistence MBean and check `OpenExtentCount` for live open
+  extents and `LastRecoverySummary` for the latest recovery observed by the
+  active or backup journal manager.
+* If `coherence.persistence.recovery.timing=true`, look for the compatibility
+  bridge single-line recovery summary containing recoveries, recovered keys,
+  checkpoint bytes loaded, total recovery time, checkpoint-load time,
+  journal-scan time, journal-replay time, and backup-recovery time.
+
+=== Recovery Failures
+
+* *CRC validation errors* on individual journal entries are logged as warnings
+  and the entry is safely skipped. If this occurs at the tail of the journal
+  (common after a crash), it indicates a partially written entry that was not
+  committed.
+* *Corrupted checkpoint files* are detected on load. The engine falls back to
+  full journal replay (scanning from the beginning) and logs a warning. Data
+  is not lost — just recovery time increases.
+* If recovery consistently fails, check for filesystem corruption, disk errors,
+  or mismatched data directories.
+
+=== Unexpected Disk Usage Growth
+
+* *Compaction not keeping up:* Check the `compaction.min.load.factor`. If files
+  have low utilization but aren't being compacted, the threshold may be too
+  low.
+* *Many small journal files:* Consider increasing `max.file.size`.
+* *Large checkpoint files:* This is normal for large caches. Checkpoint size is
+  proportional to the number of live entries (key + ticket per entry).
+* *Stale files after crash:* Journal files in `FULL` state that are no longer
+  referenced by the radix tree are reclaimed after the next checkpoint. If
+  these accumulate, trigger a manual checkpoint or wait for the automatic
+  trigger.
+
+== Limitations and Future Work
+
+Unified Persistence supports persistence, restart recovery, snapshots, and BDB
+migration paths as described in this document.
+
+The following capabilities are planned for future phases:
+
+* *File-based partition transfer.* Currently, partition transfers use the
+  standard network path. A future phase will add the ability to transfer
+  partition data by moving or streaming journal files directly, which will be
+  significantly faster for large partitions.
+* *Off-heap radix tree.* The in-memory radix tree currently resides on the Java
+  heap. A future optimization could move it off-heap to reduce GC pressure and
+  allow larger data sets.
+
+== Summary
+
+Unified Persistence provides Coherence with a journal-based persistence engine
+that can be used as:
+
+* A drop-in BDB replacement through the persistence side-channel (Mode 1)
+* A unified primary backing map and persistent store via `journal-scheme`
+  (Mode 2)
+* A journal-backed backup backing map via
+  `<backup-storage><type>journal</type>` (Mode 3), composable with Modes 1
+  or 2
+
+For most users, adoption starts with one of these configurations:
+
+[cols="1,3"]
+|===
+| Starting Point | Recommended Path
+
+| Existing BDB persistence
+| Switch `persistence-type` to `journal`. Optionally import from a BDB
+  snapshot using `migration-source-directory`.
+
+| New persistent cache
+| Use `<journal-scheme/>` with an `active-backup` journal persistence
+  environment. The default backup-map auto-pair gives you Mode 2 + Mode 3
+  with no extra configuration: a single durable write per cache mutation per
+  copy.
+
+| Elastic Data + BDB persistence
+| Switch to `<journal-scheme/>` + journal persistence environment to unify
+  the backing map and persistence layer. Add
+  `<backup-storage><type>journal</type>` (or rely on the auto-pair) for a
+  fully unified storage model across primary and backup.
+
+| Existing journal persistence wanting durable backup partitions
+| Add `<backup-storage><type>journal</type>` to the distributed scheme and
+  switch the persistence environment to `active-backup`.
+|===

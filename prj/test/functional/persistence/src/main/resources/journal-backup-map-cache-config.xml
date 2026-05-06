@@ -1,0 +1,62 @@
+<?xml version="1.0"?>
+<!--
+  Copyright (c) 2000, 2026, Oracle and/or its affiliates.
+
+  Licensed under the Universal Permissive License v 1.0 as shown at
+  https://oss.oracle.com/licenses/upl.
+  -->
+<cache-config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xmlns="http://xmlns.oracle.com/coherence/coherence-cache-config"
+              xsi:schemaLocation="http://xmlns.oracle.com/coherence/coherence-cache-config coherence-cache-config.xsd">
+
+  <caching-scheme-mapping>
+    <cache-mapping>
+      <cache-name>journal-backup-map</cache-name>
+      <scheme-name>journal-backup-distributed</scheme-name>
+    </cache-mapping>
+    <cache-mapping>
+      <cache-name>journal-backup-map-defaulted</cache-name>
+      <scheme-name>journal-backup-defaulted-distributed</scheme-name>
+    </cache-mapping>
+  </caching-scheme-mapping>
+
+  <caching-schemes>
+    <distributed-scheme>
+      <scheme-name>journal-backup-distributed</scheme-name>
+      <service-name>JournalBackupMapDistributedCache</service-name>
+      <thread-count-min system-property="test.threads">0</thread-count-min>
+      <partition-count system-property="coherence.distributed.partitions">257</partition-count>
+      <backup-count system-property="test.backupcount">1</backup-count>
+      <backup-storage>
+        <type>journal</type>
+      </backup-storage>
+      <backing-map-scheme>
+        <journal-scheme/>
+      </backing-map-scheme>
+      <persistence>
+        <environment system-property="test.persistent-environment">simple-journal-environment</environment>
+      </persistence>
+      <partitioned-quorum-policy-scheme>
+        <class-name>persistence.AbstractSimplePersistenceTests$QuorumPolicy</class-name>
+      </partitioned-quorum-policy-scheme>
+      <autostart>true</autostart>
+    </distributed-scheme>
+    <distributed-scheme>
+      <scheme-name>journal-backup-defaulted-distributed</scheme-name>
+      <service-name>JournalBackupMapDefaultedDistributedCache</service-name>
+      <thread-count-min system-property="test.threads">0</thread-count-min>
+      <partition-count system-property="coherence.distributed.partitions">257</partition-count>
+      <backup-count system-property="test.backupcount">1</backup-count>
+      <backing-map-scheme>
+        <journal-scheme/>
+      </backing-map-scheme>
+      <persistence>
+        <environment system-property="test.persistent-environment">simple-journal-environment</environment>
+      </persistence>
+      <partitioned-quorum-policy-scheme>
+        <class-name>persistence.AbstractSimplePersistenceTests$QuorumPolicy</class-name>
+      </partitioned-quorum-policy-scheme>
+      <autostart system-property="test.defaulted.autostart">false</autostart>
+    </distributed-scheme>
+  </caching-schemes>
+</cache-config>

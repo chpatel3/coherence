@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -25,11 +25,16 @@ import com.tangosol.internal.net.service.grid.PersistenceDependencies;
 
 import com.tangosol.io.FileHelper;
 import com.tangosol.io.ReadBuffer;
+import com.tangosol.io.journal2.PartitionJournalConfig;
+
+import com.tangosol.net.CacheFactory;
+import com.tangosol.net.management.Registry;
 
 import com.tangosol.persistence.AbstractPersistenceEnvironment;
 import com.tangosol.persistence.CachePersistenceHelper;
 import com.tangosol.persistence.SafePersistenceWrappers;
 import com.tangosol.persistence.bdb.BerkeleyDBEnvironment;
+import com.tangosol.persistence.journal.JournalPersistenceEnvironment;
 
 import com.tangosol.util.Base;
 
@@ -96,15 +101,108 @@ public class PersistenceEnvironmentParamBuilder
         PersistenceEnvironment<ReadBuffer> environment;
         try
             {
-            // default to a BerkeleyDBEnvironment or delegate to the builder
-            environment = m_bldr == null
-                    ? new BerkeleyDBEnvironment(
-                            info.getPersistenceActiveDirectory(),
-                            info.getPersistenceBackupDirectory(),
-                            info.getPersistenceEventsDirectory(),
-                            info.getPersistenceSnapshotDirectory(),
-                            info.getPersistenceTrashDirectory())
-                    : m_bldr.realize(createResolver(sClusterName, sServiceName), loader, listParameters);
+            if (m_bldr != null)
+                {
+                environment = m_bldr.realize(createResolver(sClusterName, sServiceName),
+                        loader, listParameters);
+                }
+            else if (TYPE_JOURNAL.equalsIgnoreCase(m_sType))
+                {
+                JournalPersistenceEnvironment env = new JournalPersistenceEnvironment(
+                        info.getPersistenceActiveDirectory(),
+                        info.getPersistenceBackupDirectory(),
+                        info.getPersistenceEventsDirectory(),
+                        info.getPersistenceSnapshotDirectory(),
+                        info.getPersistenceTrashDirectory());
+
+                PartitionJournalConfig configJournal = new PartitionJournalConfig();
+                boolean                fConfigured   = false;
+
+                String sCheckpointThreshold = Config.getProperty(PROP_JOURNAL_CHECKPOINT_THRESHOLD);
+                if (sCheckpointThreshold != null && !sCheckpointThreshold.isEmpty())
+                    {
+                    configJournal.setCheckpointBytesThreshold(parseJournalMemorySize(
+                            PROP_JOURNAL_CHECKPOINT_THRESHOLD, sCheckpointThreshold));
+                    fConfigured = true;
+                    }
+
+                String sMaxFileSize = Config.getProperty(PROP_JOURNAL_MAX_FILE_SIZE);
+                if (sMaxFileSize != null && !sMaxFileSize.isEmpty())
+                    {
+                    configJournal.setMaximumFileSize(parseJournalMemorySize(
+                            PROP_JOURNAL_MAX_FILE_SIZE, sMaxFileSize));
+                    fConfigured = true;
+                    }
+
+                String sCompactionMinLoadFactor = Config.getProperty(PROP_JOURNAL_COMPACTION_MIN_LOAD_FACTOR);
+                if (sCompactionMinLoadFactor != null && !sCompactionMinLoadFactor.isEmpty())
+                    {
+                    configJournal.setCompactionMinLoadFactor(Double.parseDouble(sCompactionMinLoadFactor));
+                    fConfigured = true;
+                    }
+
+                String sAdaptiveInitialWrites = Config.getProperty(PROP_JOURNAL_CHECKPOINT_ADAPTIVE_INITIAL_WRITES);
+                if (sAdaptiveInitialWrites != null && !sAdaptiveInitialWrites.isEmpty())
+                    {
+                    configJournal.setAdaptiveCheckpointInitialWrites(parseLongProperty(
+                            PROP_JOURNAL_CHECKPOINT_ADAPTIVE_INITIAL_WRITES, sAdaptiveInitialWrites));
+                    fConfigured = true;
+                    }
+
+                String sAdaptiveMinWrites = Config.getProperty(PROP_JOURNAL_CHECKPOINT_ADAPTIVE_MIN_WRITES);
+                if (sAdaptiveMinWrites != null && !sAdaptiveMinWrites.isEmpty())
+                    {
+                    configJournal.setAdaptiveCheckpointMinWrites(parseLongProperty(
+                            PROP_JOURNAL_CHECKPOINT_ADAPTIVE_MIN_WRITES, sAdaptiveMinWrites));
+                    fConfigured = true;
+                    }
+
+                String sAdaptiveMaxWrites = Config.getProperty(PROP_JOURNAL_CHECKPOINT_ADAPTIVE_MAX_WRITES);
+                if (sAdaptiveMaxWrites != null && !sAdaptiveMaxWrites.isEmpty())
+                    {
+                    configJournal.setAdaptiveCheckpointMaxWrites(parseLongProperty(
+                            PROP_JOURNAL_CHECKPOINT_ADAPTIVE_MAX_WRITES, sAdaptiveMaxWrites));
+                    fConfigured = true;
+                    }
+
+                String sAdaptiveTargetMillis = Config.getProperty(PROP_JOURNAL_CHECKPOINT_ADAPTIVE_TARGET_MILLIS);
+                if (sAdaptiveTargetMillis != null && !sAdaptiveTargetMillis.isEmpty())
+                    {
+                    configJournal.setAdaptiveCheckpointTargetMillis(parseDoubleProperty(
+                            PROP_JOURNAL_CHECKPOINT_ADAPTIVE_TARGET_MILLIS, sAdaptiveTargetMillis));
+                    fConfigured = true;
+                    }
+
+                String sAdaptiveWarmupCount = Config.getProperty(PROP_JOURNAL_CHECKPOINT_ADAPTIVE_WARMUP_COUNT);
+                if (sAdaptiveWarmupCount != null && !sAdaptiveWarmupCount.isEmpty())
+                    {
+                    configJournal.setAdaptiveCheckpointWarmupCount(parseIntProperty(
+                            PROP_JOURNAL_CHECKPOINT_ADAPTIVE_WARMUP_COUNT, sAdaptiveWarmupCount));
+                    fConfigured = true;
+                    }
+
+                if (fConfigured)
+                    {
+                    env.setJournalConfig(configJournal);
+                    }
+
+                if (m_sMigrationSource != null && !m_sMigrationSource.isEmpty())
+                    {
+                    env.setMigrationSourceDirectory(new File(m_sMigrationSource));
+                    }
+
+                env.setMBeanRegistryContext(sServiceName, getJournalPersistenceManagementRegistry());
+                environment = env;
+                }
+            else
+                {
+                environment = new BerkeleyDBEnvironment(
+                        info.getPersistenceActiveDirectory(),
+                        info.getPersistenceBackupDirectory(),
+                        info.getPersistenceEventsDirectory(),
+                        info.getPersistenceSnapshotDirectory(),
+                        info.getPersistenceTrashDirectory());
+                }
             }
         catch (Exception e)
             {
@@ -112,6 +210,17 @@ public class PersistenceEnvironmentParamBuilder
                     "Error creating PersistenceEnvironment: " + this);
             }
         return wrap(environment);
+        }
+
+    /**
+     * Return the management registry used by journal persistence managers for
+     * their service-level MBean.
+     *
+     * @return the management registry, or {@code null} when management is unavailable
+     */
+    private Registry getJournalPersistenceManagementRegistry()
+        {
+        return CacheFactory.getCluster().getManagement();
         }
 
     // ----- PersistenceEnvironmentBuilder methods --------------------------
@@ -172,6 +281,20 @@ public class PersistenceEnvironmentParamBuilder
         if (sMode != null && sMode.length() > 0)
             {
             m_sMode = sMode;
+            }
+        }
+
+    /**
+     * Set the persistence implementation type.
+     *
+     * @param sType  persistence type ("bdb" or "journal")
+     */
+    @Injectable("persistence-type")
+    public void setPersistenceType(String sType)
+        {
+        if (sType != null && sType.length() > 0)
+            {
+            m_sType = sType;
             }
         }
 
@@ -240,6 +363,20 @@ public class PersistenceEnvironmentParamBuilder
         }
 
     /**
+     * Set the migration source directory.
+     *
+     * @param sPathname  either relative or absolute pathname
+     */
+    @Injectable("migration-source-directory")
+    public void setMigrationSourceDirectory(String sPathname)
+        {
+        if (sPathname != null && sPathname.length() > 0)
+            {
+            m_sMigrationSource = sPathname;
+            }
+        }
+
+    /**
      * Set a {@link ParameterizedBuilder builder} to be used instantiate the
      * appropriate {@link PersistenceEnvironment}.
      *
@@ -258,10 +395,12 @@ public class PersistenceEnvironmentParamBuilder
         {
         StringBuilder sb = new StringBuilder()
           .append("\n        Mode: ").append(m_sMode)
+          .append("\n        Type: ").append(m_sType)
           .append("\n        Active Location: ").append(m_sActive)
           .append("\n        Backup Location: ").append(m_sBackup)
           .append("\n        Snapshot Location:").append(m_sSnapshot)
-          .append("\n        Trash Location:").append(m_sTrash);
+          .append("\n        Trash Location:").append(m_sTrash)
+          .append("\n        Migration Source:").append(m_sMigrationSource);
 
         if (m_bldr != null)
             {
@@ -309,6 +448,8 @@ public class PersistenceEnvironmentParamBuilder
         resolver.add(new Parameter("backup-directory", File.class, info.getPersistenceBackupDirectory()));
         resolver.add(new Parameter("snapshot-directory", File.class, info.getPersistenceSnapshotDirectory()));
         resolver.add(new Parameter("trash-directory", File.class, info.getPersistenceTrashDirectory()));
+        resolver.add(new Parameter("migration-source-directory", File.class,
+                m_sMigrationSource == null || m_sMigrationSource.isEmpty() ? null : new File(m_sMigrationSource)));
 
         return resolver;
         }
@@ -374,6 +515,90 @@ public class PersistenceEnvironmentParamBuilder
         Parameter p = resolver.resolve(sParamName);
 
         return p == null ? "" : p.evaluate(resolver).as(String.class);
+        }
+
+    /**
+     * Parse a journal memory-size system property value.
+     *
+     * @param sProperty  the system property name
+     * @param sValue     the configured value
+     *
+     * @return the parsed byte count
+     */
+    protected static long parseJournalMemorySize(String sProperty, String sValue)
+        {
+        try
+            {
+            return Base.parseMemorySize(sValue);
+            }
+        catch (RuntimeException e)
+            {
+            throw new IllegalArgumentException("invalid value for system property \"" + sProperty
+                    + "\": \"" + sValue + "\"", e);
+            }
+        }
+
+    /**
+     * Parse a long-valued journal system property.
+     *
+     * @param sProperty  the system property name
+     * @param sValue     the configured value
+     *
+     * @return the parsed long value
+     */
+    protected static long parseLongProperty(String sProperty, String sValue)
+        {
+        try
+            {
+            return Long.parseLong(sValue);
+            }
+        catch (NumberFormatException e)
+            {
+            throw new IllegalArgumentException("invalid value for system property \"" + sProperty
+                    + "\": \"" + sValue + "\"", e);
+            }
+        }
+
+    /**
+     * Parse a double-valued journal system property.
+     *
+     * @param sProperty  the system property name
+     * @param sValue     the configured value
+     *
+     * @return the parsed double value
+     */
+    protected static double parseDoubleProperty(String sProperty, String sValue)
+        {
+        try
+            {
+            return Double.parseDouble(sValue);
+            }
+        catch (NumberFormatException e)
+            {
+            throw new IllegalArgumentException("invalid value for system property \"" + sProperty
+                    + "\": \"" + sValue + "\"", e);
+            }
+        }
+
+    /**
+     * Parse an int-valued journal system property.
+     *
+     * @param sProperty  the system property name
+     * @param sValue     the configured value
+     *
+     * @return the parsed int value
+     */
+    protected static int parseIntProperty(String sProperty, String sValue)
+        {
+        try
+            {
+            return Integer.parseInt(sValue);
+            }
+        catch (NumberFormatException e)
+            {
+            throw new IllegalArgumentException("invalid value for system property \"" + sProperty
+                    + "\": \"" + sValue + "\"", e);
+            }
         }
 
     // ----- inner class: DefaultFailureContinuation ------------------------
@@ -579,7 +804,79 @@ public class PersistenceEnvironmentParamBuilder
     protected String m_sTrash;
 
     /**
+     * The directory used as a migration source.
+     */
+    protected String m_sMigrationSource;
+
+    /**
+     * The persistence implementation type (bdb or journal).
+     */
+    protected String m_sType = TYPE_BDB;
+
+    /**
      * A {@link ParameterizedBuilder} that creates a {@link PersistenceEnvironment}.
      */
     protected ParameterizedBuilder<PersistenceEnvironment<ReadBuffer>> m_bldr;
+
+    /**
+     * Persistence type for BerkeleyDB.
+     */
+    public static final String TYPE_BDB = "bdb";
+
+    /**
+     * Persistence type for journal.
+     */
+    public static final String TYPE_JOURNAL = "journal";
+
+    /**
+     * System property controlling the journal checkpoint bytes threshold.
+     */
+    public static final String PROP_JOURNAL_CHECKPOINT_THRESHOLD =
+            "coherence.persistence.journal.checkpoint.threshold";
+
+    /**
+     * System property controlling the initial adaptive checkpoint write
+     * trigger.
+     */
+    public static final String PROP_JOURNAL_CHECKPOINT_ADAPTIVE_INITIAL_WRITES =
+            "coherence.persistence.journal.checkpoint.adaptive.initial.writes";
+
+    /**
+     * System property controlling the minimum adaptive checkpoint write
+     * trigger.
+     */
+    public static final String PROP_JOURNAL_CHECKPOINT_ADAPTIVE_MIN_WRITES =
+            "coherence.persistence.journal.checkpoint.adaptive.min.writes";
+
+    /**
+     * System property controlling the maximum adaptive checkpoint write
+     * trigger.
+     */
+    public static final String PROP_JOURNAL_CHECKPOINT_ADAPTIVE_MAX_WRITES =
+            "coherence.persistence.journal.checkpoint.adaptive.max.writes";
+
+    /**
+     * System property controlling the adaptive checkpoint duration budget, in
+     * milliseconds.
+     */
+    public static final String PROP_JOURNAL_CHECKPOINT_ADAPTIVE_TARGET_MILLIS =
+            "coherence.persistence.journal.checkpoint.adaptive.target.millis";
+
+    /**
+     * System property controlling the adaptive checkpoint warmup sample count.
+     */
+    public static final String PROP_JOURNAL_CHECKPOINT_ADAPTIVE_WARMUP_COUNT =
+            "coherence.persistence.journal.checkpoint.adaptive.warmup.count";
+
+    /**
+     * System property controlling the journal maximum file size.
+     */
+    public static final String PROP_JOURNAL_MAX_FILE_SIZE =
+            "coherence.persistence.journal.max.file.size";
+
+    /**
+     * System property controlling the journal compaction minimum load factor.
+     */
+    public static final String PROP_JOURNAL_COMPACTION_MIN_LOAD_FACTOR =
+            "coherence.persistence.journal.compaction.min.load.factor";
     }

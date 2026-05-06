@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -52,6 +52,7 @@ import com.tangosol.net.partition.PartitionAwareBackingMap;
 import com.tangosol.net.partition.PartitionSet;
 import com.tangosol.net.partition.PartitionSplittingBackingMap;
 import com.tangosol.net.partition.ReadWriteSplittingBackingMap;
+import com.tangosol.persistence.journal.PersistentBackingMap;
 import com.tangosol.net.security.LocalPermission;
 import com.tangosol.net.security.SecurityHelper;
 import com.tangosol.run.component.EventDeathException;
@@ -242,6 +243,13 @@ public class Storage
      * Name of the cache this storage represents.
      */
     private String __m_CacheName;
+
+    /**
+     * Property PersistentBackingMap
+     *
+     * True iff the backing map provides persistence directly.
+     */
+    private boolean __m_PersistentBackingMap;
 
     /**
      * Property ConfiguredBackupListeners
@@ -4792,7 +4800,7 @@ public class Storage
         try
             {
             // handle persistence
-            if (isPersistent() && service.isBackupPersistence())
+            if (isPersistent() && service.isBackupPersistence() && !isPersistentBackup())
                 {
                 PartitionedCache.PartitionControl ctrl      = (PartitionedCache.PartitionControl) service.getPartitionControl(iPartition);
                 PersistentStore                   store     = ctrl.ensureOpenPersistentStore(null, true, true);
@@ -5239,7 +5247,8 @@ public class Storage
                     _trace("BackingMapManager " + manager.getClass().getName() +
                            ": returned \"null\" for a cache: " + sCacheName, 1);
                     }
-                else if (!mapNew.isEmpty())
+                else if (!mapNew.isEmpty() &&
+                        !(mapNew instanceof com.tangosol.persistence.journal.JournalBackingMap))
                     {
                     // this could happen if the service restarted, and a custom manager
                     // failed to clear the contents during releaseCache()
@@ -5264,6 +5273,7 @@ public class Storage
                 mapResource.addMapListener(instantiatePrimaryListener());
                 setPersistent(service.getPersistenceManager() != null &&
                               manager.isBackingMapPersistent(sCacheName));
+                setPersistentBackingMap(isPersistentBackingMap(mapNew));
                 setPreferPutAllPrimary(com.tangosol.net.DefaultConfigurableCacheFactory.isPutAllOptimized(mapResource));
                 setBackingMapInternal(mapResource);
                 setBackingInternalCache(mapResource);
@@ -5363,8 +5373,9 @@ public class Storage
         // import com.tangosol.net.partition.PartitionSplittingBackingMap;
         // import java.util.Map;
 
-        PartitionedCache service   = (PartitionedCache) getService();
-        Map     mapBackup = null;
+        PartitionedCache service      = (PartitionedCache) getService();
+        Map              mapBackup    = null;
+        boolean          fInitialized = false;
 
         // COH-503: When write-behind caching is used, support a configuration where
         // only not yet persisted data is backed up
@@ -5395,11 +5406,23 @@ public class Storage
                         initializePartitions(mapPartitioned, iStore);
                         }
 
-                    mapBackup = mapPartitioned;
+                    mapBackup    = mapPartitioned;
+                    fInitialized = true;
                     }
                 else
                     {
                     mapBackup = mgr.instantiateBackingMap(sCacheName);
+                    }
+                }
+
+            if (!fInitialized && mapBackup instanceof PersistentBackingMap
+                    && mapBackup instanceof com.tangosol.net.partition.PartitionAwareBackingMap)
+                {
+                com.tangosol.net.partition.PartitionAwareBackingMap mapPartitioned =
+                        (com.tangosol.net.partition.PartitionAwareBackingMap) mapBackup;
+                for (int iStore = 1; iStore <= service.getBackupCount(); iStore++)
+                    {
+                    initializePartitions(mapPartitioned, iStore);
                     }
                 }
 
@@ -5512,6 +5535,30 @@ public class Storage
         setPrimaryListener(listener);
 
         return listener;
+        }
+
+    /**
+     * Return {@code true} if the backing map provides persistence directly.
+     */
+    protected boolean isPersistentBackingMap(Map map)
+        {
+        return map instanceof PersistentBackingMap;
+        }
+
+    /**
+     * Return {@code true} if this storage uses a persistent backing map.
+     */
+    public boolean isPersistentBackingMap()
+        {
+        return __m_PersistentBackingMap;
+        }
+
+    /**
+     * Return {@code true} if this storage uses a persistent backup map.
+     */
+    public boolean isPersistentBackup()
+        {
+        return getBackupMap() instanceof PersistentBackingMap;
         }
 
     /**
@@ -6289,7 +6336,7 @@ public class Storage
                     }
 
                 // handle persistence
-                if (isPersistent() && service.isBackupPersistence())
+                if (isPersistent() && service.isBackupPersistence() && !isPersistentBackup())
                     {
                     PartitionedCache.PartitionControl ctrl       = (PartitionedCache.PartitionControl) service.getPartitionControl(iPartition);
                     PersistentStore                   store      = ctrl.ensureOpenPersistentStore(null, true, true);
@@ -9573,6 +9620,16 @@ public class Storage
     protected void setPartitionAwareBackingMap(com.tangosol.net.partition.PartitionAwareBackingMap mapPrime)
         {
         __m_PartitionAwareBackingMap = mapPrime;
+        }
+
+    // Accessor for the property "PersistentBackingMap"
+    /**
+     * Setter for property PersistentBackingMap.<p>
+     * True iff the backing map provides persistence directly.
+     */
+    protected void setPersistentBackingMap(boolean fPersistentBackingMap)
+        {
+        __m_PersistentBackingMap = fPersistentBackingMap;
         }
 
     // Accessor for the property "PartitionAwareBackupMap"

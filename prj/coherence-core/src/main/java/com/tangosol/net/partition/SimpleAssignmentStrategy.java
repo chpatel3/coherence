@@ -207,9 +207,10 @@ public class SimpleAssignmentStrategy
         {
         AnalysisContext ctx = instantiateAnalysisContext();
 
-        int          cPartitions = getPartitionCount();
-        PartitionSet partsLost   = new PartitionSet(cPartitions);
-        Member[]     aMember     = ctx.getOwnershipMembersList();
+        int                 cPartitions = getPartitionCount();
+        PartitionSet        partsLost   = new PartitionSet(cPartitions);
+        Member[]            aMember     = ctx.getOwnershipMembersList();
+        List<OrphanRecovery> listRecover = new ArrayList<>();
 
         for (int iPart = 0; iPart < cPartitions; iPart++)
             {
@@ -217,33 +218,80 @@ public class SimpleAssignmentStrategy
             int       nOwner = owners.getPrimaryOwner();
             if (nOwner == 0)
                 {
-                Comparator comparator =
-                    chainComparators(ctx.instantiateStrengthComparator(owners),
-                                     ctx.instantiateLoadComparator(true),
-                                     ctx.instantiateDefaultComparator());
-
-                // this partition is orphaned; assemble the set of members which
-                // it could be assigned to ordered by strength and load
+                // Gather the members that can recover this partition from a
+                // locally visible retained store. We defer the actual owner
+                // choice until after all orphan constraints are known so we
+                // can recover the least-portable partitions first and reduce
+                // follow-on redistribution.
                 int iPartition = iPart;
-                int cMembers   = filterSort(aMember, comparator,
-                        member ->
-                           {
-                           PartitionSet parts = mapConstraints.get(member);
-                           return parts != null && parts.contains(iPartition);
-                           });
+                Member[] aCandidates = aMember.clone();
+                int      cMembers    = filterArray(aCandidates,
+                    member ->
+                        {
+                        PartitionSet parts = mapConstraints.get(member);
+                        return parts != null && parts.contains(iPartition);
+                        });
 
                 if (cMembers == 0)
                     {
                     // nothing to recover from; simply balance the assignments
                     partsLost.add(iPart);
-
-                    cMembers = filterSort(aMember, comparator, AlwaysFilter.INSTANCE);
                     }
-
-                if (cMembers > 0)
+                else
                     {
-                    ctx.transitionPartition(iPart, 0, null, aMember[0]);
+                    listRecover.add(new OrphanRecovery(iPart,
+                            ctx.getPartitionLoad(iPart, true),
+                            Arrays.copyOf(aCandidates, cMembers)));
                     }
+                }
+            }
+
+        // Recover constrained partitions in order of increasing visibility.
+        // This prefers members with uniquely local retained stores first, and
+        // lets broadly visible partitions absorb the balancing afterwards.
+        listRecover.sort((recoverThis, recoverThat) ->
+            {
+            int nCompare = recoverThis.getCandidateCount() - recoverThat.getCandidateCount();
+            if (nCompare == 0)
+                {
+                nCompare = recoverThat.getPartitionLoad() - recoverThis.getPartitionLoad();
+                }
+            if (nCompare == 0)
+                {
+                nCompare = recoverThis.getPartition() - recoverThat.getPartition();
+                }
+            return nCompare;
+            });
+
+        for (OrphanRecovery recover : listRecover)
+            {
+            Ownership owners = ctx.getPartitionOwnership(recover.getPartition());
+            Member[]  aCandidates = recover.getCandidates().clone();
+
+            Arrays.sort(aCandidates,
+                    chainComparators(ctx.instantiateStrengthComparator(owners),
+                                     ctx.instantiateLoadComparator(true),
+                                     ctx.instantiateDefaultComparator()));
+
+            if (aCandidates.length > 0)
+                {
+                ctx.transitionPartition(recover.getPartition(), 0, null, aCandidates[0]);
+                }
+            }
+
+        for (int iPart = partsLost.next(0); iPart >= 0; iPart = partsLost.next(iPart + 1))
+            {
+            Ownership owners = ctx.getPartitionOwnership(iPart);
+            Member[]  aCandidates = aMember.clone();
+            Comparator comparator =
+                chainComparators(ctx.instantiateStrengthComparator(owners),
+                                 ctx.instantiateLoadComparator(true),
+                                 ctx.instantiateDefaultComparator());
+
+            int cMembers = filterSort(aCandidates, comparator, AlwaysFilter.INSTANCE);
+            if (cMembers > 0)
+                {
+                ctx.transitionPartition(iPart, 0, null, aCandidates[0]);
                 }
             }
 
@@ -263,6 +311,43 @@ public class SimpleAssignmentStrategy
         // recovery or loss; we almost certainly need to move something around
         ctx.setAnalysisDelay(0L);
         setLastAnalysisContext(ctx);
+        }
+
+    /**
+     * Captures the recovery candidates for a single orphaned partition.
+     */
+    protected static class OrphanRecovery
+        {
+        protected OrphanRecovery(int iPartition, int cLoad, Member[] aCandidates)
+            {
+            m_iPartition  = iPartition;
+            m_cLoad       = cLoad;
+            m_aCandidates = aCandidates;
+            }
+
+        protected Member[] getCandidates()
+            {
+            return m_aCandidates;
+            }
+
+        protected int getCandidateCount()
+            {
+            return m_aCandidates.length;
+            }
+
+        protected int getPartition()
+            {
+            return m_iPartition;
+            }
+
+        protected int getPartitionLoad()
+            {
+            return m_cLoad;
+            }
+
+        protected final Member[] m_aCandidates;
+        protected final int      m_cLoad;
+        protected final int      m_iPartition;
         }
 
     /**
