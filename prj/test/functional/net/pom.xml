@@ -56,6 +56,36 @@
   <build>
     <plugins>
       <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-antrun-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>gar-fixture</id>
+            <phase>process-classes</phase>
+            <goals>
+              <goal>run</goal>
+            </goals>
+            <configuration>
+              <skip>false</skip>
+              <target>
+                <delete file="${project.build.outputDirectory}/META-INF/coherence-application.xml"/>
+                <delete file="${project.build.outputDirectory}/coh_new_examples.gar"/>
+                <zip destfile="${project.build.outputDirectory}/coh_new_examples.gar">
+                  <zipfileset dir="${project.basedir}/src/main/gar"/>
+                  <zipfileset file="${project.basedir}/src/main/resources/coherence-cache-config.xml"
+                              fullpath="META-INF/coherence-cache-config.xml"/>
+                  <zipfileset file="${project.basedir}/src/main/resources/override-cache-config.xml"
+                              fullpath="override-cache-config.xml"/>
+                  <zipfileset file="${project.basedir}/src/main/resources/META-INF/coherence/security-config.xml"
+                              fullpath="META-INF/coherence/security-config.xml"/>
+                </zip>
+              </target>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <plugin>
           <groupId>com.oracle.coherence.moditect</groupId>
           <artifactId>moditect-maven-plugin</artifactId>
           <version>${maven.moditect.plugin.version}</version>
