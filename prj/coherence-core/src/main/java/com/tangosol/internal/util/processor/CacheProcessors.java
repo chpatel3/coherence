@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2023, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -121,7 +121,7 @@ public class CacheProcessors
         return new ReplaceValue<>(oldValue, newValue);
         }
 
-    // ---- Lambda-based processors -----------------------------------------
+    // ---- Function-based processors ---------------------------------------
 
     /**
      * Return an entry processor which replaces the value of an entry by
@@ -138,11 +138,7 @@ public class CacheProcessors
             BiFunction<? super K, ? super V, ? extends V> function)
         {
         Objects.requireNonNull(function);
-        return (entry) ->
-            {
-            entry.setValue(function.apply(entry.getKey(), entry.getValue()));
-            return null;
-            };
+        return new ReplaceFunction<>(function);
         }
 
     /**
@@ -161,20 +157,7 @@ public class CacheProcessors
     public static <K, V> InvocableMap.EntryProcessor<K, V, V> computeIfAbsent(
             Function<? super K, ? extends V> mappingFunction)
         {
-        return (entry) ->
-            {
-            V value = entry.getValue();
-            if (value == null)
-                {
-                value = mappingFunction.apply(entry.getKey());
-                if (value != null)
-                    {
-                    entry.setValue(value);
-                    }
-                }
-
-            return value;
-            };
+        return new ComputeIfAbsent<>(mappingFunction);
         }
 
     /**
@@ -195,24 +178,7 @@ public class CacheProcessors
     public static <K, V> InvocableMap.EntryProcessor<K, V, V> computeIfPresent(
             BiFunction<? super K, ? super V, ? extends V> remappingFunction)
         {
-        return (entry) ->
-            {
-            V oldValue = entry.getValue();
-            if (oldValue != null)
-                {
-                V newValue = remappingFunction.apply(entry.getKey(), oldValue);
-                if (newValue == null)
-                    {
-                    entry.remove(false);
-                    }
-                else
-                    {
-                    entry.setValue(newValue);
-                    return newValue;
-                    }
-                }
-            return null;
-            };
+        return new ComputeIfPresent<>(remappingFunction);
         }
 
     /**
@@ -233,27 +199,7 @@ public class CacheProcessors
     public static <K, V> InvocableMap.EntryProcessor<K, V, V> compute(
             BiFunction<? super K, ? super V, ? extends V> remappingFunction)
         {
-        return (entry) ->
-            {
-            Objects.requireNonNull(remappingFunction);
-
-            V oldValue = entry.getValue();
-            V newValue = remappingFunction.apply(entry.getKey(), oldValue);
-
-            if (newValue == null)
-                {
-                if (entry.isPresent())
-                    {
-                    entry.remove(false);
-                    }
-                return null;
-                }
-            else
-                {
-                entry.setValue(newValue);
-                return newValue;
-                }
-            };
+        return new Compute<>(remappingFunction);
         }
 
     /**
@@ -278,27 +224,7 @@ public class CacheProcessors
     public static <K, V> InvocableMap.EntryProcessor<K, V, V> merge(
             V value, BiFunction<? super V, ? super V, ? extends V> remappingFunction)
         {
-        return (entry) ->
-            {
-            Objects.requireNonNull(remappingFunction);
-            Objects.requireNonNull(value);
-
-            V valueOld = entry.getValue();
-            V valueNew = valueOld == null
-                         ? value
-                         : remappingFunction.apply(valueOld, value);
-
-            if (valueNew == null)
-                {
-                entry.remove(false);
-                }
-            else
-                {
-                entry.setValue(valueNew);
-                }
-
-            return valueNew;
-            };
+        return new Merge<>(value, remappingFunction);
         }
 
     // ---- Entry Processors ------------------------------------------------
@@ -342,6 +268,428 @@ public class CacheProcessors
                 throws IOException
             {
             }
+        }
+
+    /**
+     * Function-based replace entry processor.
+     *
+     * @param <K> the type of the Map entry key
+     * @param <V> the type of the Map entry value
+     */
+    public static class ReplaceFunction<K, V>
+            extends BaseProcessor<K, V, Void>
+        {
+        public ReplaceFunction()
+            {
+            }
+
+        public ReplaceFunction(BiFunction<? super K, ? super V, ? extends V> function)
+            {
+            m_function = Objects.requireNonNull(function);
+            }
+
+        // ---- EntryProcessor methods --------------------------------------
+
+        @Override
+        public Void process(InvocableMap.Entry<K, V> entry)
+            {
+            entry.setValue(m_function.apply(entry.getKey(), entry.getValue()));
+            return null;
+            }
+
+        // ---- ExternalizableLite methods ----------------------------------
+
+        @Override
+        public void readExternal(DataInput in)
+                throws IOException
+            {
+            m_function = readObject(in);
+            }
+
+        @Override
+        public void writeExternal(DataOutput out)
+                throws IOException
+            {
+            writeObject(out, m_function);
+            }
+
+        // ---- PortableObject methods --------------------------------------
+
+        @Override
+        public void readExternal(PofReader in)
+                throws IOException
+            {
+            m_function = in.readObject(0);
+            }
+
+        @Override
+        public void writeExternal(PofWriter out)
+                throws IOException
+            {
+            out.writeObject(0, m_function);
+            }
+
+        // ---- accessors ---------------------------------------------------
+
+        public BiFunction<? super K, ? super V, ? extends V> getFunction()
+            {
+            return m_function;
+            }
+
+        // ---- data members ------------------------------------------------
+
+        @JsonbProperty("function")
+        protected BiFunction<? super K, ? super V, ? extends V> m_function;
+        }
+
+    /**
+     * ComputeIfAbsent entry processor.
+     *
+     * @param <K> the type of the Map entry key
+     * @param <V> the type of the Map entry value
+     */
+    public static class ComputeIfAbsent<K, V>
+            extends BaseProcessor<K, V, V>
+        {
+        public ComputeIfAbsent()
+            {
+            }
+
+        public ComputeIfAbsent(Function<? super K, ? extends V> function)
+            {
+            m_function = Objects.requireNonNull(function);
+            }
+
+        // ---- EntryProcessor methods --------------------------------------
+
+        @Override
+        public V process(InvocableMap.Entry<K, V> entry)
+            {
+            V value = entry.getValue();
+            if (value == null)
+                {
+                value = m_function.apply(entry.getKey());
+                if (value != null)
+                    {
+                    entry.setValue(value);
+                    }
+                }
+
+            return value;
+            }
+
+        // ---- ExternalizableLite methods ----------------------------------
+
+        @Override
+        public void readExternal(DataInput in)
+                throws IOException
+            {
+            m_function = readObject(in);
+            }
+
+        @Override
+        public void writeExternal(DataOutput out)
+                throws IOException
+            {
+            writeObject(out, m_function);
+            }
+
+        // ---- PortableObject methods --------------------------------------
+
+        @Override
+        public void readExternal(PofReader in)
+                throws IOException
+            {
+            m_function = in.readObject(0);
+            }
+
+        @Override
+        public void writeExternal(PofWriter out)
+                throws IOException
+            {
+            out.writeObject(0, m_function);
+            }
+
+        // ---- accessors ---------------------------------------------------
+
+        public Function<? super K, ? extends V> getFunction()
+            {
+            return m_function;
+            }
+
+        // ---- data members ------------------------------------------------
+
+        @JsonbProperty("function")
+        protected Function<? super K, ? extends V> m_function;
+        }
+
+    /**
+     * ComputeIfPresent entry processor.
+     *
+     * @param <K> the type of the Map entry key
+     * @param <V> the type of the Map entry value
+     */
+    public static class ComputeIfPresent<K, V>
+            extends BaseProcessor<K, V, V>
+        {
+        public ComputeIfPresent()
+            {
+            }
+
+        public ComputeIfPresent(BiFunction<? super K, ? super V, ? extends V> function)
+            {
+            m_function = Objects.requireNonNull(function);
+            }
+
+        // ---- EntryProcessor methods --------------------------------------
+
+        @Override
+        public V process(InvocableMap.Entry<K, V> entry)
+            {
+            V valueOld = entry.getValue();
+            if (valueOld != null)
+                {
+                V valueNew = m_function.apply(entry.getKey(), valueOld);
+                if (valueNew == null)
+                    {
+                    entry.remove(false);
+                    }
+                else
+                    {
+                    entry.setValue(valueNew);
+                    return valueNew;
+                    }
+                }
+            return null;
+            }
+
+        // ---- ExternalizableLite methods ----------------------------------
+
+        @Override
+        public void readExternal(DataInput in)
+                throws IOException
+            {
+            m_function = readObject(in);
+            }
+
+        @Override
+        public void writeExternal(DataOutput out)
+                throws IOException
+            {
+            writeObject(out, m_function);
+            }
+
+        // ---- PortableObject methods --------------------------------------
+
+        @Override
+        public void readExternal(PofReader in)
+                throws IOException
+            {
+            m_function = in.readObject(0);
+            }
+
+        @Override
+        public void writeExternal(PofWriter out)
+                throws IOException
+            {
+            out.writeObject(0, m_function);
+            }
+
+        // ---- accessors ---------------------------------------------------
+
+        public BiFunction<? super K, ? super V, ? extends V> getFunction()
+            {
+            return m_function;
+            }
+
+        // ---- data members ------------------------------------------------
+
+        @JsonbProperty("function")
+        protected BiFunction<? super K, ? super V, ? extends V> m_function;
+        }
+
+    /**
+     * Compute entry processor.
+     *
+     * @param <K> the type of the Map entry key
+     * @param <V> the type of the Map entry value
+     */
+    public static class Compute<K, V>
+            extends BaseProcessor<K, V, V>
+        {
+        public Compute()
+            {
+            }
+
+        public Compute(BiFunction<? super K, ? super V, ? extends V> function)
+            {
+            m_function = Objects.requireNonNull(function);
+            }
+
+        // ---- EntryProcessor methods --------------------------------------
+
+        @Override
+        public V process(InvocableMap.Entry<K, V> entry)
+            {
+            V valueOld = entry.getValue();
+            V valueNew = m_function.apply(entry.getKey(), valueOld);
+
+            if (valueNew == null)
+                {
+                if (entry.isPresent())
+                    {
+                    entry.remove(false);
+                    }
+                return null;
+                }
+            else
+                {
+                entry.setValue(valueNew);
+                return valueNew;
+                }
+            }
+
+        // ---- ExternalizableLite methods ----------------------------------
+
+        @Override
+        public void readExternal(DataInput in)
+                throws IOException
+            {
+            m_function = readObject(in);
+            }
+
+        @Override
+        public void writeExternal(DataOutput out)
+                throws IOException
+            {
+            writeObject(out, m_function);
+            }
+
+        // ---- PortableObject methods --------------------------------------
+
+        @Override
+        public void readExternal(PofReader in)
+                throws IOException
+            {
+            m_function = in.readObject(0);
+            }
+
+        @Override
+        public void writeExternal(PofWriter out)
+                throws IOException
+            {
+            out.writeObject(0, m_function);
+            }
+
+        // ---- accessors ---------------------------------------------------
+
+        public BiFunction<? super K, ? super V, ? extends V> getFunction()
+            {
+            return m_function;
+            }
+
+        // ---- data members ------------------------------------------------
+
+        @JsonbProperty("function")
+        protected BiFunction<? super K, ? super V, ? extends V> m_function;
+        }
+
+    /**
+     * Merge entry processor.
+     *
+     * @param <K> the type of the Map entry key
+     * @param <V> the type of the Map entry value
+     */
+    public static class Merge<K, V>
+            extends BaseProcessor<K, V, V>
+        {
+        public Merge()
+            {
+            }
+
+        public Merge(V value, BiFunction<? super V, ? super V, ? extends V> function)
+            {
+            m_value    = Objects.requireNonNull(value);
+            m_function = Objects.requireNonNull(function);
+            }
+
+        // ---- EntryProcessor methods --------------------------------------
+
+        @Override
+        public V process(InvocableMap.Entry<K, V> entry)
+            {
+            V valueOld = entry.getValue();
+            V valueNew = valueOld == null
+                         ? m_value
+                         : m_function.apply(valueOld, m_value);
+
+            if (valueNew == null)
+                {
+                entry.remove(false);
+                }
+            else
+                {
+                entry.setValue(valueNew);
+                }
+
+            return valueNew;
+            }
+
+        // ---- ExternalizableLite methods ----------------------------------
+
+        @Override
+        public void readExternal(DataInput in)
+                throws IOException
+            {
+            m_value    = readObject(in);
+            m_function = readObject(in);
+            }
+
+        @Override
+        public void writeExternal(DataOutput out)
+                throws IOException
+            {
+            writeObject(out, m_value);
+            writeObject(out, m_function);
+            }
+
+        // ---- PortableObject methods --------------------------------------
+
+        @Override
+        public void readExternal(PofReader in)
+                throws IOException
+            {
+            m_value    = in.readObject(0);
+            m_function = in.readObject(1);
+            }
+
+        @Override
+        public void writeExternal(PofWriter out)
+                throws IOException
+            {
+            out.writeObject(0, m_value);
+            out.writeObject(1, m_function);
+            }
+
+        // ---- accessors ---------------------------------------------------
+
+        public V getValue()
+            {
+            return m_value;
+            }
+
+        public BiFunction<? super V, ? super V, ? extends V> getFunction()
+            {
+            return m_function;
+            }
+
+        // ---- data members ------------------------------------------------
+
+        @JsonbProperty("value")
+        protected V m_value;
+
+        @JsonbProperty("function")
+        protected BiFunction<? super V, ? super V, ? extends V> m_function;
         }
 
     /**
