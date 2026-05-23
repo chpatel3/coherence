@@ -1,6 +1,6 @@
 
 /*
- * Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -353,6 +353,7 @@ public class PagedTopic
         __mapChildren.put("MapEvent", com.tangosol.coherence.component.util.daemon.queueProcessor.service.grid.partitionedService.PartitionedCache.MapEvent.get_CLASS());
         __mapChildren.put("MemberConfigUpdate", com.tangosol.coherence.component.util.daemon.queueProcessor.service.grid.PartitionedService.MemberConfigUpdate.get_CLASS());
         __mapChildren.put("MemberJoined", com.tangosol.coherence.component.util.daemon.queueProcessor.service.Grid.MemberJoined.get_CLASS());
+        __mapChildren.put("MemberRecovered", com.tangosol.coherence.component.util.daemon.queueProcessor.service.Grid.MemberRecovered.get_CLASS());
         __mapChildren.put("MemberWelcome", PagedTopic.MemberWelcome.get_CLASS());
         __mapChildren.put("MemberWelcomeRequest", PagedTopic.MemberWelcomeRequest.get_CLASS());
         __mapChildren.put("MemberWelcomeRequestTask", com.tangosol.coherence.component.util.daemon.queueProcessor.service.Grid.MemberWelcomeRequestTask.get_CLASS());

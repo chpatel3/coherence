@@ -165,14 +165,26 @@ public class NamedTopicSubscriber<V>
         f_queueReceiveOrders = new BatchingOperationsQueue<>(this::trigger, 1,
                                         f_backlog, v -> 1, BatchingOperationsQueue.Executor.fromTaskDaemon(f_daemon));
 
-        topic.getTopicService().addServiceListener(f_serviceStartListener);
-        f_connector.addListener(new Listener());
-        f_connector.postConstruct(this);
+        try
+            {
+            topic.getTopicService().addServiceListener(f_serviceStartListener);
+            f_connector.addListener(f_connectorListener);
+            f_connector.postConstruct(this);
 
-        int cChannel = f_topic.getChannelCount();
-        initializeChannels(cChannel);
-        registerMBean();
-        ensureConnected();
+            int cChannel = f_topic.getChannelCount();
+            initializeChannels(cChannel);
+            registerMBean();
+            ensureConnected();
+            }
+        catch (Throwable t)
+            {
+            cleanupAfterFailedConstruction(t);
+            if (t instanceof Error)
+                {
+                throw (Error) t;
+                }
+            throw Exceptions.ensureRuntimeException(t);
+            }
 
         // Note: post construction this implementation must be fully async
         }
@@ -1848,6 +1860,23 @@ public class NamedTopicSubscriber<V>
         }
 
     /**
+     * Cleanup any partially initialized state when construction fails.
+     *
+     * @param t  the construction failure
+     */
+    protected void cleanupAfterFailedConstruction(Throwable t)
+        {
+        try
+            {
+            closeInternal(false);
+            }
+        catch (Throwable cleanup)
+            {
+            t.addSuppressed(cleanup);
+            }
+        }
+
+    /**
      * Ensure that the subscriber is connected.
      */
     protected void ensureConnected()
@@ -2571,8 +2600,21 @@ public class NamedTopicSubscriber<V>
                     {
                     // ignore
                     }
-                f_connector.closeSubscription(this, fDestroyed);
-                f_topic.getService().removeServiceListener(f_serviceStartListener);
+                try
+                    {
+                    f_connector.closeSubscription(this, fDestroyed);
+                    }
+                finally
+                    {
+                    try
+                        {
+                        f_connector.removeListener(f_connectorListener);
+                        }
+                    finally
+                        {
+                        f_topic.getService().removeServiceListener(f_serviceStartListener);
+                        }
+                    }
                 }
             finally
                 {
@@ -4486,4 +4528,9 @@ public class NamedTopicSubscriber<V>
      * The service start listener.
      */
     private final ServiceStartListener f_serviceStartListener = new ServiceStartListener();
+
+    /**
+     * The connector event listener.
+     */
+    private final Listener f_connectorListener = new Listener();
     }

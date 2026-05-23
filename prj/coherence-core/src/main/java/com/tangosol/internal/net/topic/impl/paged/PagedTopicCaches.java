@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000, 2025, Oracle and/or its affiliates.
+ * Copyright (c) 2000, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -960,7 +960,17 @@ public class PagedTopicCaches
             }
         catch (TimeoutException e)
             {
-            throw Exceptions.ensureRuntimeException(e, "Timed out waiting for subscriptions");
+            try
+                {
+                futureSub.cancel(true);
+                }
+            catch (Throwable ignored)
+                {
+                // ignored
+                }
+            throw Exceptions.ensureRuntimeException(e, "Timed out after 30 seconds waiting for subscriptions"
+                    + " to advance for topic " + f_sTopicName + ", subscriber " + subscriberId
+                    + ", subscription " + lSubscription);
             }
 
         return alHead;
