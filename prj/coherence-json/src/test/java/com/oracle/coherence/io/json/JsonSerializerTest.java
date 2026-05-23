@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019, 2025, Oracle and/or its affiliates.
+ * Copyright (c) 2019, 2026, Oracle and/or its affiliates.
  *
  * Licensed under the Universal Permissive License v 1.0 as shown at
  * https://oss.oracle.com/licenses/upl.
@@ -19,8 +19,6 @@ import com.oracle.coherence.io.json.genson.stream.JsonReader;
 import com.oracle.coherence.io.json.genson.stream.JsonWriter;
 
 import com.tangosol.io.ByteArrayWriteBuffer;
-
-import com.tangosol.internal.util.processor.CacheProcessors;
 
 import com.tangosol.util.Base;
 import com.tangosol.util.Binary;
@@ -601,24 +599,6 @@ class JsonSerializerTest
         assertThrows(JsonBindingException.class, () -> genson.aliasFor(SafeJsonSerializer[].class));
         assertThrows(JsonBindingException.class, () -> genson.classFor(SafeJsonSerializer.class.getName()));
         assertThrows(JsonBindingException.class, () -> genson.classFor(SafeJsonSerializer[].class.getName()));
-        }
-
-    @Test
-    void shouldAliasCacheProcessorFunctionCarriers()
-        {
-        JsonSerializer serializer = new JsonSerializer();
-        Genson         genson     = serializer.underlying();
-
-        assertThat(genson.aliasFor(CacheProcessors.ReplaceFunction.class),
-                is("internal.util.processor.CacheProcessors.ReplaceFunction"));
-        assertThat(genson.aliasFor(CacheProcessors.ComputeIfAbsent.class),
-                is("internal.util.processor.CacheProcessors.ComputeIfAbsent"));
-        assertThat(genson.aliasFor(CacheProcessors.ComputeIfPresent.class),
-                is("internal.util.processor.CacheProcessors.ComputeIfPresent"));
-        assertThat(genson.aliasFor(CacheProcessors.Compute.class),
-                is("internal.util.processor.CacheProcessors.Compute"));
-        assertThat(genson.aliasFor(CacheProcessors.Merge.class),
-                is("internal.util.processor.CacheProcessors.Merge"));
         }
 
     @Test
